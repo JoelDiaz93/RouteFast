@@ -1,5 +1,6 @@
 @baseUrl = http://localhost:3000/api/v1
-@correlationId = demo-routefast-phase2
+@correlationId = demo-routefast-phase3
+@idempotencyKey = demo-order-phase3-001
 
 ### Gateway health
 GET {{baseUrl}}/health
@@ -19,10 +20,11 @@ x-correlation-id: {{correlationId}}
 GET {{baseUrl}}/drivers
 x-correlation-id: {{correlationId}}
 
-### Create order - asynchronously triggers dispatch
+### Create order - Outbox publishes asynchronously
 POST {{baseUrl}}/orders
 Content-Type: application/json
 x-correlation-id: {{correlationId}}
+Idempotency-Key: {{idempotencyKey}}
 
 {
   "customerId": "CUS-1001",
@@ -41,10 +43,48 @@ x-correlation-id: {{correlationId}}
   }
 }
 
-### List orders - observe PENDING -> DISPATCHING -> ASSIGNED
+### Repeat exactly the same request with same Idempotency-Key
+### Expected: same persisted order; no second initial dispatch event.
+POST {{baseUrl}}/orders
+Content-Type: application/json
+x-correlation-id: {{correlationId}}
+Idempotency-Key: {{idempotencyKey}}
+
+{
+  "customerId": "CUS-1001",
+  "priority": "EXPRESS",
+  "pickup": {
+    "label": "Warehouse",
+    "address": "North Ave 10",
+    "latitude": -0.16,
+    "longitude": -78.47
+  },
+  "dropoff": {
+    "label": "Customer",
+    "address": "South Ave 20",
+    "latitude": -0.19,
+    "longitude": -78.49
+  }
+}
+
+### List orders - observe eventual state
 GET {{baseUrl}}/orders
 x-correlation-id: {{correlationId}}
 
 ### List dispatch workflows
 GET {{baseUrl}}/dispatches
 x-correlation-id: {{correlationId}}
+
+### Get a dispatch (replace id)
+@dispatchId = REPLACE_WITH_DISPATCH_ID
+GET {{baseUrl}}/dispatches/{{dispatchId}}
+x-correlation-id: {{correlationId}}
+
+### Trigger Saga compensation for an ASSIGNED dispatch
+POST {{baseUrl}}/dispatches/{{dispatchId}}/cancel
+Content-Type: application/json
+x-correlation-id: {{correlationId}}
+
+{
+  "reason": "OPERATOR_TEST"
+}

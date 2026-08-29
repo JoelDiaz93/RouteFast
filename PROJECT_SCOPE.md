@@ -162,4 +162,4 @@ A feature is not complete until it has:
 
 ## Current implementation checkpoint
 
-Phase 2 has implemented the Order, Driver and Dispatch bounded contexts plus RabbitMQ integration. Tracking, Routing, Notification and Operations remain outside the executable core until their roadmap phases. Reliability patterns such as Outbox, Inbox, retry queues and concurrency-safe reservation are intentionally deferred to Phase 3.
+Phase 3 has implemented the Order, Driver and Dispatch bounded contexts plus RabbitMQ integration and the first reliability layer: Transactional Outbox, Consumer Inbox, bounded retries/DLQ, idempotent order creation, concurrency-safe driver reservation, delayed assignment expiration and Saga compensation. Tracking, Routing, Notification and Operations remain outside the executable core until their roadmap phases. Geospatial search and real-time tracking are intentionally deferred to Phase 4.

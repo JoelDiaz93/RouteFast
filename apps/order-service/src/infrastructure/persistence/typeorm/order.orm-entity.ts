@@ -1,10 +1,11 @@
-import { Column, CreateDateColumn, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 import { OrderPriority } from '../../../domain/entities/order-priority.enum';
 import { OrderStatus } from '../../../domain/entities/order-status.enum';
 export interface StoredLocation { label: string; address: string; latitude: number; longitude: number; }
 @Entity({ name: 'orders' })
 export class OrderOrmEntity {
   @PrimaryColumn({ type: 'uuid' }) id!: string;
+  @Index({ unique: true }) @Column({ name: 'idempotency_key', type: 'varchar', length: 160, nullable: true }) idempotencyKey!: string | null;
   @Column({ name: 'customer_id', type: 'varchar', length: 100 }) customerId!: string;
   @Column({ type: 'enum', enum: OrderPriority }) priority!: OrderPriority;
   @Column({ type: 'enum', enum: OrderStatus }) status!: OrderStatus;

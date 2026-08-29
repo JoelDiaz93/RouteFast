@@ -6,107 +6,101 @@
 
 RouteFast es un proyecto de ingeniería backend diseñado para demostrar los problemas difíciles de logística de última milla: límites de dominio, microservicios, colas, orquestación, concurrencia, consistencia eventual, resiliencia y operación distribuida.
 
-## Estado actual — Fase 2: Event-Driven Services ✅
+## Estado actual — Fase 3: Reliability & Concurrency ✅
 
-La Fase 2 convierte el primer vertical slice de órdenes en un workflow distribuido real:
+La Fase 3 transforma el workflow distribuido de la Fase 2 en un sistema preparado para duplicados, fallos parciales y carreras concurrentes.
 
 ```text
-Cliente
-  ↓
-API Gateway
-  ↓ HTTP
-Order Service ───────► PostgreSQL Orders
-  │
-  │ order.ready_for_dispatch.v1
-  ▼
-RabbitMQ
-  ↓
-Dispatch Service ────► PostgreSQL Dispatch
-  │
-  │ driver.reservation_requested.v1
-  ▼
-RabbitMQ
-  ↓
-Driver Service ──────► PostgreSQL Drivers
-  │
-  └── driver.reserved.v1 / driver.reservation_failed.v1
+Order Service
+  ├── estado de negocio
+  └── Outbox ─────────────┐
+                          ▼
+                       RabbitMQ
+                          ↓
+                    Dispatch Service
+                    ├── Inbox / Outbox
+                    ├── Saga
+                    └── BullMQ → Redis
+                          ↓
+                       RabbitMQ
+                          ↓
+                     Driver Service
+                     ├── Inbox / Outbox
+                     └── reserva con lock PostgreSQL
 ```
 
 ### Implementado
 
-- API Gateway NestJS;
-- Order Service;
-- Driver Service;
-- Dispatch Service;
-- base DDD / Clean Architecture;
-- bases de datos independientes por servicio;
-- RabbitMQ;
-- eventos de integración versionados;
-- CQRS selectivo en Dispatch Service;
-- propagación de `correlationId`;
-- acknowledgements manuales en consumidores;
-- health/readiness;
-- Docker Compose;
-- pruebas del dominio;
-- ADRs y catálogo de eventos.
+- Transactional Outbox en Order, Driver y Dispatch;
+- Consumer Inbox y `eventId` para deduplicación;
+- `Idempotency-Key` en creación de órdenes;
+- retries limitados en RabbitMQ;
+- Dead Letter Queue por cola principal;
+- reserva concurrente de conductores mediante locks de PostgreSQL;
+- BullMQ + Redis para expiración diferida del assignment;
+- Saga de compensación;
+- compensación de reservas tardías después de timeout;
+- estados `COMPENSATING` y `CANCELLED` en Dispatch;
+- endpoint operacional de cancelación.
 
-## Flujo principal
+### Consistencia
+
+RouteFast utiliza **at-least-once delivery**. No se afirma "exactly once".
 
 ```text
-Crear Order
-   ↓
-order.ready_for_dispatch.v1
-   ↓
-Dispatch inicia búsqueda
-   ↓
-driver.reservation_requested.v1
-   ↓
-Driver Service reserva candidato
-   ↓
-driver.reserved.v1
-   ↓
-Dispatch = ASSIGNED
-   ↓
-dispatch.assigned.v1
-   ↓
-Order = ASSIGNED
+Cambio de negocio + Outbox
+       ↓ misma transacción PostgreSQL
+Outbox Worker
+       ↓
+RabbitMQ
+       ↓
+Inbox + operación idempotente
 ```
 
-Cuando no existe un conductor disponible:
+Esto elimina el problema principal de Fase 2 donde podía ocurrir:
 
 ```text
-Driver Service
-   ↓
-driver.reservation_failed.v1
-   ↓
-Dispatch = FAILED
-   ↓
-dispatch.failed.v1
-   ↓
-Order vuelve a PENDING_DISPATCH
+DB COMMIT ✓
+RabbitMQ ✕
 ```
 
-## Complejidad técnica que demostramos
+### Concurrencia
 
-- microservicios con ownership real de datos;
-- comunicación REST vs RabbitMQ según el tipo de interacción;
-- orquestación central en Dispatch;
-- CQRS para separar comandos de workflow y consultas operativas;
-- mensajes versionados;
-- propagación de correlación entre servicios;
-- consistencia eventual visible en el estado de Order y Dispatch.
+La regla principal es:
 
-## Limitaciones deliberadas de Fase 2
+```text
+reservas del conductor <= capacidad
+```
 
-Todavía **no** afirmamos que el workflow sea production-safe:
+Driver Service selecciona y reserva dentro de una transacción con row locking. Dos workers concurrentes no pueden modificar simultáneamente la misma capacidad.
 
-1. existe dual-write entre PostgreSQL y RabbitMQ;
-2. la reserva del driver todavía puede sufrir race conditions;
-3. no existe Consumer Inbox para deduplicación;
-4. no hay retry queues / DLQ replay;
-5. no existe timeout/compensación de asignación.
+### Compensación Saga
 
-Todo eso es exactamente el objetivo de la **Fase 3 — Reliability & Concurrency**.
+```text
+Dispatch ASSIGNED
+     ↓ cancelación
+COMPENSATING
+     ↓
+release driver
+     ↓
+Driver released
+     ↓
+Dispatch CANCELLED
+     ↓
+Order CANCELLED
+```
+
+También se libera automáticamente una reserva que llegue tarde después de un timeout del workflow.
+
+### Retry / DLQ
+
+```text
+main queue → fallo → retry queue → main queue
+                                  ↓ retries agotados
+                                 DLQ
+```
+
+La Fase 4 se concentrará en la complejidad específicamente logística: **PostGIS, Redis GEO, tracking, WebSockets, scoring de conductores y SLA**.
 
 ## Ejecutar localmente
 
@@ -148,6 +142,7 @@ PATCH /api/v1/drivers/:id/availability
 
 GET   /api/v1/dispatches
 GET   /api/v1/dispatches/:id
+POST  /api/v1/dispatches/:id/cancel
 ```
 
 ## Documentación relevante
@@ -155,7 +150,11 @@ GET   /api/v1/dispatches/:id
 - [`PROJECT_SCOPE.md`](./PROJECT_SCOPE.md)
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 - [`ROADMAP.md`](./ROADMAP.md)
+- [`PHASE_3_SUMMARY.md`](./PHASE_3_SUMMARY.md)
 - [`PHASE_2_SUMMARY.md`](./PHASE_2_SUMMARY.md)
+- [`docs/phase-3/reliability-flow.md`](./docs/phase-3/reliability-flow.md)
+- [`docs/phase-3/concurrency.md`](./docs/phase-3/concurrency.md)
+- [`docs/phase-3/event-catalog.md`](./docs/phase-3/event-catalog.md)
 - [`docs/phase-2/event-catalog.md`](./docs/phase-2/event-catalog.md)
 - [`docs/phase-2/sequence.md`](./docs/phase-2/sequence.md)
 - [`docs/adr`](./docs/adr)

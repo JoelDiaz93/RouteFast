@@ -130,26 +130,28 @@ Across services:
 
 RabbitMQ consumers are designed for **at-least-once delivery**.
 
-Therefore future phases require:
+Phase 3 implements the required controls:
 
-- idempotent consumers;
-- consumer Inbox;
+- idempotent business handlers;
+- Consumer Inbox;
 - Transactional Outbox for reliable publication;
-- message IDs and correlation IDs.
+- event IDs and correlation IDs;
+- bounded retries and DLQs.
 
 ---
 
 ## Concurrency strategy
 
-Driver assignment will explicitly address the scenario where multiple orders compete for one driver.
+Driver assignment explicitly addresses both capacity races and duplicate-event races.
 
-Planned controls:
+Implemented controls:
 
-1. database optimistic versioning;
-2. atomic reservation operation;
-3. short-lived Redis coordination where justified;
-4. idempotency keys;
-5. invariant tests under concurrent load.
+1. PostgreSQL row-level write locking for driver capacity;
+2. `SKIP LOCKED` candidate selection for concurrent workers;
+3. transaction-scoped advisory locking per `orderId`;
+4. unique active reservation ownership in `driver_reservations`;
+5. idempotency keys for order creation;
+6. Inbox/event IDs for message deduplication.
 
 No design may rely solely on "requests usually arrive one at a time".
 
@@ -200,7 +202,7 @@ Target deployment progression:
 
 ---
 
-## Phase 2 current deployment topology
+## Current deployment topology — Phase 3
 
 ```text
 API Gateway :3000
@@ -212,6 +214,7 @@ Order / Driver / Dispatch
        ↕
 RabbitMQ :5672
 Management :15672
+Redis / BullMQ :6379
 ```
 
 ### Queue ownership
@@ -220,8 +223,71 @@ Management :15672
 - `routefast.driver.events` is consumed only by Driver Service.
 - `routefast.dispatch.events` is consumed only by Dispatch Service.
 
-Producers target a service queue using an explicit versioned event pattern. This Phase 2 topology is intentionally simple point-to-point messaging. Fan-out choreography for notifications, audit and analytics is introduced when those consumers exist.
+Producers target a service queue using an explicit versioned event pattern. The current topology intentionally keeps explicit service-owned queues. Fan-out choreography for notifications, audit and analytics is introduced when those consumers exist.
 
 ### Consistency semantics
 
-Phase 2 uses eventual consistency across Order, Dispatch and Driver. No distributed transaction spans service databases. Direct event publication is temporary and documented in ADR-006.
+Phase 3 uses eventual consistency across Order, Dispatch and Driver. No distributed transaction spans service databases. Integration-event intent is now committed through each service Transactional Outbox; Consumer Inbox and idempotent state transitions tolerate at-least-once delivery.
+
+
+---
+
+# Phase 3 Reliability Architecture
+
+## Local transaction boundary
+
+Each service commits its own business state and integration-event intent to the same PostgreSQL database transaction. Cross-service publication is asynchronous through the Outbox worker.
+
+```text
+Application command
+      ↓
+PostgreSQL transaction
+  ├── domain state
+  └── outbox_events
+      ↓ COMMIT
+Outbox worker
+      ↓
+RabbitMQ
+```
+
+This preserves database ownership: no service participates in another service's transaction.
+
+## Event delivery semantics
+
+RouteFast is **at least once**. All Phase 3 integration events contain an `eventId`. Consumers persist processed IDs in `inbox_events` and business handlers are designed to tolerate duplicate state transitions.
+
+## Driver concurrency
+
+The Driver database is the capacity source of truth. Reservation candidate selection occurs under a PostgreSQL write lock. `SKIP LOCKED` allows horizontally scaled workers to avoid concurrently mutating the same candidate row.
+
+## Temporal orchestration
+
+RabbitMQ remains the cross-service event backbone. BullMQ/Redis is introduced only for delayed internal work, initially assignment expiration.
+
+```text
+Dispatch started
+    ├── RabbitMQ → Driver reservation
+    └── BullMQ delayed timeout
+                 ↓
+          if still SEARCHING_DRIVER
+                 ↓
+             FAILED
+```
+
+## Saga compensation
+
+Dispatch Service owns the critical workflow. Cancelling an already assigned dispatch is not a distributed rollback; it is an explicit forward-moving compensation:
+
+```text
+ASSIGNED
+   ↓
+COMPENSATING
+   ↓ driver.release_requested.v1
+Driver releases capacity
+   ↓ driver.released.v1
+CANCELLED
+   ↓ dispatch.cancelled.v1
+Order CANCELLED
+```
+
+This makes intermediate failure states observable and recoverable.

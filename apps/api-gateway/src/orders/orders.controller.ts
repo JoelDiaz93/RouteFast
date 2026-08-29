@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Headers,
   Get,
   HttpException,
   Param,
@@ -20,8 +21,12 @@ export class OrdersController {
   constructor(private readonly ordersClient: OrdersClient) {}
 
   @Post()
-  async create(@Body() body: CreateOrderDto, @Req() req: Request): Promise<unknown> {
-    return this.forward(() => this.ordersClient.create(body, this.correlationId(req)));
+  async create(
+    @Body() body: CreateOrderDto,
+    @Req() req: Request,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<unknown> {
+    return this.forward(() => this.ordersClient.create(body, this.correlationId(req), idempotencyKey));
   }
 
   @Get()

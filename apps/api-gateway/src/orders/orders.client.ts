@@ -16,8 +16,8 @@ export class OrdersClient {
     this.baseUrl = config.get<string>('ORDER_SERVICE_URL', 'http://localhost:3001');
   }
 
-  async create(body: CreateOrderDto, correlationId: string): Promise<unknown> {
-    return this.request('post', '/orders', correlationId, body);
+  async create(body: CreateOrderDto, correlationId: string, idempotencyKey?: string): Promise<unknown> {
+    return this.request('post', '/orders', correlationId, body, idempotencyKey);
   }
 
   async list(correlationId: string): Promise<unknown> {
@@ -37,6 +37,7 @@ export class OrdersClient {
     path: string,
     correlationId: string,
     data?: unknown,
+    idempotencyKey?: string,
   ): Promise<unknown> {
     try {
       const response = await firstValueFrom(
@@ -44,7 +45,10 @@ export class OrdersClient {
           method,
           url: `${this.baseUrl}${path}`,
           data,
-          headers: { 'x-correlation-id': correlationId },
+          headers: {
+            'x-correlation-id': correlationId,
+            ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}),
+          },
           timeout: 3000,
         }),
       );

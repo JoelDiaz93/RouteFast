@@ -50,132 +50,109 @@ A CRUD-only architecture does not address these conditions.
 
 ---
 
-# Current state — Phase 2: Event-Driven Services ✅
+# Current state — Phase 3: Reliability & Concurrency ✅
 
-Phase 1 established a clean Order bounded context. Phase 2 now makes the first distributed dispatch workflow executable.
+Phase 3 hardens the distributed dispatch workflow against duplicate messages, broker/database dual-write failures, concurrent driver reservations and partial Saga failures.
 
 ```text
 Client
-  │
+  ↓
+API Gateway
+  ↓ HTTP
+Order Service ───────────────► Order PostgreSQL
+  │                              │
+  │                              └── business state + Outbox (atomic)
   ▼
-API Gateway :3000
-  │ HTTP
-  ├─────────────► Order Service :3001 ─────► Order DB :55432
-  │                    │
-  │                    │ order.ready_for_dispatch.v1
-  │                    ▼
-  │                 RabbitMQ :5672
-  │                    │
-  │                    ▼
-  ├─────────────► Dispatch Service :3003 ──► Dispatch DB :55434
-  │                    │
-  │                    │ driver.reservation_requested.v1
-  │                    ▼
-  │                 RabbitMQ
-  │                    │
-  │                    ▼
-  └─────────────► Driver Service :3002 ────► Driver DB :55433
-                       │
-                       └── driver.reserved.v1 / reservation_failed.v1
+Outbox Worker → RabbitMQ → Dispatch Service ──► Dispatch PostgreSQL
+                              │                     │
+                              │                     ├── Outbox / Inbox
+                              │                     └── BullMQ timeout → Redis
+                              ▼
+                           RabbitMQ
+                              ↓
+                         Driver Service ─────────► Driver PostgreSQL
+                              │                     │
+                              │                     └── row-locked capacity reservation
+                              └── Outbox → RabbitMQ
 ```
 
-### Implemented
+### Implemented in Phase 3
 
-- NestJS monorepo with four independently deployable applications;
-- API Gateway;
-- Order Service with DDD + Clean Architecture;
-- Driver Service with its own aggregate and database;
-- Dispatch Service as workflow owner;
-- RabbitMQ asynchronous integration;
-- versioned integration event names;
-- NestJS CQRS selectively inside Dispatch Service;
-- service-local PostgreSQL databases;
-- correlation IDs across HTTP and RabbitMQ payloads;
-- manual RMQ acknowledgements;
-- health/readiness endpoints;
-- Docker Compose with three PostgreSQL instances + RabbitMQ Management;
-- domain/unit tests;
-- ADRs and explicit reliability gaps.
+- Transactional Outbox in Order, Driver and Dispatch services;
+- Consumer Inbox and integration `eventId` deduplication;
+- order creation `Idempotency-Key` support;
+- bounded RabbitMQ retry queues and final DLQs;
+- concurrency-safe driver reservation with PostgreSQL row locking;
+- BullMQ + Redis delayed assignment expiration;
+- Saga compensation for assigned deliveries;
+- late-reservation compensation after timeout/failure;
+- explicit `COMPENSATING` / `CANCELLED` dispatch states;
+- operator cancellation endpoint;
+- correlation IDs preserved across HTTP, Outbox and RabbitMQ.
 
-### Main asynchronous workflow
+### Reliability model
 
 ```text
-POST /orders
-    ↓
-Order persisted
-    ↓
-order.ready_for_dispatch.v1
-    ↓
-Dispatch Service
-    ↓
-dispatch.started.v1 ───────────────► Order = DISPATCHING
-    ↓
-driver.reservation_requested.v1
-    ↓
-Driver Service
-    ├── driver.reserved.v1
-    │       ↓
-    │   Dispatch = ASSIGNED
-    │       ↓
-    │   dispatch.assigned.v1 ──────► Order = ASSIGNED
-    │
-    └── driver.reservation_failed.v1
-            ↓
-        Dispatch = FAILED
-            ↓
-        dispatch.failed.v1 ────────► Order = PENDING_DISPATCH
+Business change
+      +
+Outbox event
+      │
+      └── ONE local DB transaction
+                ↓
+           async publisher
+                ↓
+             RabbitMQ
+                ↓
+          Consumer Inbox
+                ↓
+        idempotent business effect
 ```
 
-See [`docs/phase-2/sequence.md`](./docs/phase-2/sequence.md) and [`docs/phase-2/event-catalog.md`](./docs/phase-2/event-catalog.md).
+RouteFast deliberately uses **at-least-once delivery**, not a false "exactly once" claim. Outbox publication may duplicate an event after a crash; the event ID, Inbox and idempotent state transitions make that safe.
 
----
-
-## Why CQRS is selective
-
-CQRS is used in Dispatch Service because dispatch has two distinct concerns:
-
-- **commands** mutate workflow state in response to integration events;
-- **queries** expose operational dispatch state.
-
-Order and Driver services use regular application use cases because adding CQRS there would currently add more ceremony than value.
-
-This is documented in [`ADR-007`](./docs/adr/007-cqrs-dispatch-service.md).
-
----
-
-## Deliberate Phase 2 reliability gaps
-
-Phase 2 is event-driven, but it does not pretend to be production-safe yet.
-
-### 1. Database + RabbitMQ dual write
-
-Currently:
+### Concurrency invariant
 
 ```text
-save order to PostgreSQL ✓
-        ↓
-publish RabbitMQ event ✕
+reserved orders <= driver capacity
 ```
 
-can leave persisted state without its integration event.
+Driver Service reserves capacity inside a PostgreSQL transaction with a row-level write lock. Concurrent workers cannot mutate the same candidate reservation simultaneously.
 
-Phase 3 replaces direct publication with **Transactional Outbox**.
+### Saga compensation
 
-### 2. Driver reservation race
+```text
+Assigned Dispatch
+      ↓ operator/system cancellation
+COMPENSATING
+      ↓
+driver.release_requested.v1
+      ↓
+Driver releases reservation
+      ↓
+driver.released.v1
+      ↓
+Dispatch = CANCELLED
+      ↓
+dispatch.cancelled.v1
+      ↓
+Order = CANCELLED
+```
 
-Phase 2 selects an available driver and then saves the reservation. Two concurrent consumers can still race around that selection.
+A late `driver.reserved.v1` arriving after an assignment timeout is also compensated rather than leaking driver capacity.
 
-Phase 3 adds **optimistic concurrency / atomic reservation** and concurrency tests.
+### Retry / DLQ topology
 
-### 3. Duplicate delivery
+```text
+main queue
+   ↓ handler failure
+retry queue (TTL)
+   ↓
+main queue
+   ↓ retries exhausted
+DLQ
+```
 
-There is no Consumer Inbox yet. Phase 3 makes consumers idempotent.
-
-### 4. Failed messages
-
-Manual acknowledgements are implemented, but retry queues, DLQ topology and replay tooling belong to Phase 3.
-
-The point of these gaps is architectural progression: the project first makes the failure mode visible, then implements the reliability pattern that addresses it.
+See [`PHASE_3_SUMMARY.md`](./PHASE_3_SUMMARY.md), [`docs/phase-3/reliability-flow.md`](./docs/phase-3/reliability-flow.md) and [`docs/phase-3/concurrency.md`](./docs/phase-3/concurrency.md).
 
 ---
 
@@ -192,12 +169,14 @@ RouteFast/
 │   ├── adr/
 │   ├── domain/
 │   ├── phase-1/
-│   └── phase-2/
+│   ├── phase-2/
+│   └── phase-3/
 ├── ARCHITECTURE.md
 ├── PROJECT_SCOPE.md
 ├── ROADMAP.md
 ├── PHASE_1_SUMMARY.md
 ├── PHASE_2_SUMMARY.md
+├── PHASE_3_SUMMARY.md
 ├── docker-compose.yml
 └── routefast.http
 ```
@@ -231,10 +210,11 @@ PATCH /drivers/:driverId/availability
 
 ```http
 GET /dispatches
-GET /dispatches/:dispatchId
+GET  /dispatches/:dispatchId
+POST /dispatches/:dispatchId/cancel
 ```
 
-Use [`routefast.http`](./routefast.http) for a complete Phase 2 smoke flow.
+Use [`routefast.http`](./routefast.http) for the current reliability/compensation smoke flow.
 
 ---
 

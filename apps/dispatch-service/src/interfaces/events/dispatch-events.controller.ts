@@ -1,35 +1,85 @@
 import { Controller } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { Ctx, EventPattern, Payload, RmqContext } from '@nestjs/microservices';
+import { CompleteCompensationCommand } from '../../application/commands/complete-compensation.command';
 import { CompleteDriverReservationCommand } from '../../application/commands/complete-driver-reservation.command';
 import { StartDispatchCommand } from '../../application/commands/start-dispatch.command';
+import { RmqReliabilityService } from '../../infrastructure/reliability/rmq-reliability.service';
 
-interface OrderReadyEvent { orderId: string; correlationId: string; }
-interface DriverReservedEvent { orderId: string; dispatchId: string; driverId: string; correlationId: string; }
-interface DriverReservationFailedEvent { orderId: string; dispatchId: string; reason: string; correlationId: string; }
+interface OrderReadyEvent {
+  eventId: string;
+  orderId: string;
+  correlationId: string;
+}
+interface DriverReservedEvent {
+  eventId: string;
+  orderId: string;
+  dispatchId: string;
+  driverId: string;
+  correlationId: string;
+}
+interface DriverReservationFailedEvent {
+  eventId: string;
+  orderId: string;
+  dispatchId: string;
+  reason: string;
+  correlationId: string;
+}
+interface DriverReleasedEvent extends DriverReservedEvent {}
 
 @Controller()
 export class DispatchEventsController {
-  constructor(private readonly commandBus: CommandBus) {}
+  private readonly queue = process.env.DISPATCH_EVENTS_QUEUE ?? 'routefast.dispatch.events';
+
+  constructor(
+    private readonly commandBus: CommandBus,
+    private readonly reliability: RmqReliabilityService,
+  ) {}
 
   @EventPattern('order.ready_for_dispatch.v1')
-  async orderReady(@Payload() event: OrderReadyEvent, @Ctx() context: RmqContext): Promise<void> {
-    await this.handle(context, () => this.commandBus.execute(new StartDispatchCommand(event.orderId, event.correlationId)));
+  orderReady(@Payload() event: OrderReadyEvent, @Ctx() context: RmqContext): Promise<void> {
+    return this.reliability.handle(this.queue, 'order.ready_for_dispatch.v1', event, context, () =>
+      this.commandBus.execute(new StartDispatchCommand(event.orderId, event.correlationId)),
+    );
   }
 
   @EventPattern('driver.reserved.v1')
-  async driverReserved(@Payload() event: DriverReservedEvent, @Ctx() context: RmqContext): Promise<void> {
-    await this.handle(context, () => this.commandBus.execute(new CompleteDriverReservationCommand(event.dispatchId, event.orderId, event.driverId, null, event.correlationId)));
+  driverReserved(@Payload() event: DriverReservedEvent, @Ctx() context: RmqContext): Promise<void> {
+    return this.reliability.handle(this.queue, 'driver.reserved.v1', event, context, () =>
+      this.commandBus.execute(
+        new CompleteDriverReservationCommand(
+          event.dispatchId,
+          event.orderId,
+          event.driverId,
+          null,
+          event.correlationId,
+        ),
+      ),
+    );
   }
 
   @EventPattern('driver.reservation_failed.v1')
-  async driverReservationFailed(@Payload() event: DriverReservationFailedEvent, @Ctx() context: RmqContext): Promise<void> {
-    await this.handle(context, () => this.commandBus.execute(new CompleteDriverReservationCommand(event.dispatchId, event.orderId, null, event.reason, event.correlationId)));
+  driverReservationFailed(
+    @Payload() event: DriverReservationFailedEvent,
+    @Ctx() context: RmqContext,
+  ): Promise<void> {
+    return this.reliability.handle(this.queue, 'driver.reservation_failed.v1', event, context, () =>
+      this.commandBus.execute(
+        new CompleteDriverReservationCommand(
+          event.dispatchId,
+          event.orderId,
+          null,
+          event.reason,
+          event.correlationId,
+        ),
+      ),
+    );
   }
 
-  private async handle(context: RmqContext, operation: () => Promise<unknown>): Promise<void> {
-    const channel = context.getChannelRef(); const message = context.getMessage();
-    try { await operation(); channel.ack(message); }
-    catch (error) { channel.nack(message, false, false); throw error; }
+  @EventPattern('driver.released.v1')
+  driverReleased(@Payload() event: DriverReleasedEvent, @Ctx() context: RmqContext): Promise<void> {
+    return this.reliability.handle(this.queue, 'driver.released.v1', event, context, () =>
+      this.commandBus.execute(new CompleteCompensationCommand(event.dispatchId, event.correlationId)),
+    );
   }
 }

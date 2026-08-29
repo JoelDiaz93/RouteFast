@@ -69,6 +69,16 @@ export class Order {
     this.props.updatedAt = now;
   }
 
+
+  cancelAfterDispatch(now = new Date()): void {
+    if (this.props.status === OrderStatus.CANCELLED) return;
+    if (this.props.status !== OrderStatus.ASSIGNED && this.props.status !== OrderStatus.DISPATCHING) {
+      throw new InvalidOrderStateError(`Order ${this.props.id} cannot complete dispatch compensation from ${this.props.status}`);
+    }
+    this.props.status = OrderStatus.CANCELLED;
+    this.props.updatedAt = now;
+  }
+
   cancel(now = new Date()): void {
     if (this.props.status !== OrderStatus.PENDING_DISPATCH) {
       throw new InvalidOrderStateError(`Order ${this.props.id} cannot be cancelled from ${this.props.status}`);

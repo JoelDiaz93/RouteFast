@@ -67,8 +67,23 @@ services:
       timeout: 5s
       retries: 12
 
+  redis:
+    image: redis:7-alpine
+    container_name: routefast-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - routefast_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   routefast_order_postgres_data:
   routefast_driver_postgres_data:
   routefast_dispatch_postgres_data:
   routefast_rabbitmq_data:
+  routefast_redis_data:

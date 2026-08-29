@@ -37,6 +37,24 @@ export class Dispatch {
     this.props.updatedAt = now;
   }
 
+
+  startCompensation(reason: string, now = new Date()): void {
+    if (this.props.status === DispatchStatus.COMPENSATING || this.props.status === DispatchStatus.CANCELLED) return;
+    if (this.props.status !== DispatchStatus.ASSIGNED || !this.props.driverId) {
+      throw new Error(`Dispatch ${this.props.id} cannot compensate from ${this.props.status}`);
+    }
+    this.props.status = DispatchStatus.COMPENSATING;
+    this.props.failureReason = reason;
+    this.props.updatedAt = now;
+  }
+
+  completeCompensation(now = new Date()): void {
+    if (this.props.status === DispatchStatus.CANCELLED) return;
+    if (this.props.status !== DispatchStatus.COMPENSATING) return;
+    this.props.status = DispatchStatus.CANCELLED;
+    this.props.updatedAt = now;
+  }
+
   fail(reason: string, now = new Date()): void {
     if (this.props.status !== DispatchStatus.SEARCHING_DRIVER) return;
     this.props.status = DispatchStatus.FAILED;

@@ -46,23 +46,24 @@ Exit criteria: [`docs/phase-2/acceptance-criteria.md`](./docs/phase-2/acceptance
 
 ---
 
-## Phase 3 — Reliability & Concurrency
+## Phase 3 — Reliability & Concurrency ✅
 
 **Goal:** make dispatch correct under retries, duplicates, concurrent requests and partial failures.
 
 Deliverables:
 
-- Saga orchestrator;
-- driver reservation state machine;
-- optimistic concurrency;
-- idempotency keys;
-- Transactional Outbox;
-- Consumer Inbox;
-- retry queues;
-- DLQ;
-- BullMQ delayed assignment expiration;
-- concurrency/load tests;
-- compensation flows.
+- Saga orchestration and explicit compensation states;
+- PostgreSQL row-level concurrency control for driver capacity;
+- order creation idempotency keys;
+- Transactional Outbox in all event-producing services;
+- Consumer Inbox and event IDs;
+- bounded RabbitMQ retry queues;
+- final DLQs;
+- BullMQ + Redis delayed assignment expiration;
+- late-reservation compensation;
+- compensation flow across Dispatch → Driver → Order.
+
+Exit documentation: [`docs/phase-3`](./docs/phase-3/)
 
 Key demonstration:
 

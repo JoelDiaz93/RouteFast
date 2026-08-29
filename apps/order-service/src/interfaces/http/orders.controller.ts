@@ -16,8 +16,12 @@ export class OrdersController {
     private readonly cancelOrder: CancelOrderUseCase,
   ) {}
   @Post()
-  create(@Body() body: CreateOrderDto, @Headers('x-correlation-id') correlationId?: string): Promise<OrderView> {
-    return this.createOrder.execute({ ...body, correlationId });
+  create(
+    @Body() body: CreateOrderDto,
+    @Headers('x-correlation-id') correlationId?: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<OrderView> {
+    return this.createOrder.execute({ ...body, correlationId, idempotencyKey });
   }
   @Get() list(): Promise<OrderView[]> { return this.listOrders.execute(); }
   @Get(':orderId') async getById(@Param('orderId') orderId: string): Promise<OrderView> {

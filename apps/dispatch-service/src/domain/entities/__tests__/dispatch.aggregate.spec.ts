@@ -14,6 +14,15 @@ describe('Dispatch aggregate', () => {
     expect(dispatch.driverId).toBe('55555555-5555-5555-5555-555555555555');
   });
 
+  it('moves an assigned dispatch through compensation to cancelled', () => {
+    const dispatch = Dispatch.start({ id: '99999999-9999-9999-9999-999999999999', orderId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', correlationId: 'corr-4' });
+    dispatch.assign('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+    dispatch.startCompensation('OPERATOR_CANCELLED');
+    expect(dispatch.status).toBe(DispatchStatus.COMPENSATING);
+    dispatch.completeCompensation();
+    expect(dispatch.status).toBe(DispatchStatus.CANCELLED);
+  });
+
   it('records a driver search failure', () => {
     const dispatch = Dispatch.start({ id: '66666666-6666-6666-6666-666666666666', orderId: '77777777-7777-7777-7777-777777777777', correlationId: 'corr-3' });
     dispatch.fail('NO_AVAILABLE_DRIVER');
