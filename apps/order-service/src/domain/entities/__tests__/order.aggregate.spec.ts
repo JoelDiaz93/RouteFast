@@ -56,6 +56,36 @@ describe('Order aggregate', () => {
     );
   });
 
+
+  it('moves through dispatching to assigned with a driver', () => {
+    const order = Order.create({
+      id: '99999999-9999-9999-9999-999999999999',
+      customerId: 'CUS-9',
+      priority: OrderPriority.EXPRESS,
+      pickup,
+      dropoff,
+    });
+    order.beginDispatch();
+    expect(order.status).toBe(OrderStatus.DISPATCHING);
+    order.assignDriver('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    expect(order.status).toBe(OrderStatus.ASSIGNED);
+    expect(order.assignedDriverId).toBe('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  });
+
+  it('returns to pending when dispatch fails', () => {
+    const order = Order.create({
+      id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      customerId: 'CUS-10',
+      priority: OrderPriority.STANDARD,
+      pickup,
+      dropoff,
+    });
+    order.beginDispatch();
+    order.dispatchFailed('NO_AVAILABLE_DRIVER');
+    expect(order.status).toBe(OrderStatus.PENDING_DISPATCH);
+    expect(order.lastDispatchFailureReason).toBe('NO_AVAILABLE_DRIVER');
+  });
+
   it('rejects cancellation from a non-pending state', () => {
     const order = Order.rehydrate({
       id: '33333333-3333-3333-3333-333333333333',
@@ -64,6 +94,8 @@ describe('Order aggregate', () => {
       pickup,
       dropoff,
       status: OrderStatus.ASSIGNED,
+      assignedDriverId: '44444444-4444-4444-4444-444444444444',
+      lastDispatchFailureReason: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

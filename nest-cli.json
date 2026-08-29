@@ -25,6 +25,24 @@
       "compilerOptions": {
         "tsConfigPath": "apps/order-service/tsconfig.app.json"
       }
+    },
+    "driver-service": {
+      "type": "application",
+      "root": "apps/driver-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/driver-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/driver-service/tsconfig.app.json"
+      }
+    },
+    "dispatch-service": {
+      "type": "application",
+      "root": "apps/dispatch-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/dispatch-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/dispatch-service/tsconfig.app.json"
+      }
     }
   }
 }

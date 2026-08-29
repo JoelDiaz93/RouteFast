@@ -158,3 +158,8 @@ A feature is not complete until it has:
 - logging/correlation information;
 - documentation if it introduces a new architectural decision.
 
+
+
+## Current implementation checkpoint
+
+Phase 2 has implemented the Order, Driver and Dispatch bounded contexts plus RabbitMQ integration. Tracking, Routing, Notification and Operations remain outside the executable core until their roadmap phases. Reliability patterns such as Outbox, Inbox, retry queues and concurrency-safe reservation are intentionally deferred to Phase 3.

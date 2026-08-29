@@ -1,40 +1,50 @@
+@baseUrl = http://localhost:3000/api/v1
+@correlationId = demo-routefast-phase2
+
 ### Gateway health
-GET http://localhost:3000/api/v1/health
-x-correlation-id: demo-health-001
+GET {{baseUrl}}/health
+x-correlation-id: {{correlationId}}
 
-### Order service readiness (direct/internal)
-GET http://localhost:3001/health/ready
-
-### Create order through Gateway
-POST http://localhost:3000/api/v1/orders
+### Create an available driver
+POST {{baseUrl}}/drivers
 Content-Type: application/json
-x-correlation-id: demo-order-001
+x-correlation-id: {{correlationId}}
+
+{
+  "displayName": "Driver One",
+  "capacity": 1
+}
+
+### List drivers
+GET {{baseUrl}}/drivers
+x-correlation-id: {{correlationId}}
+
+### Create order - asynchronously triggers dispatch
+POST {{baseUrl}}/orders
+Content-Type: application/json
+x-correlation-id: {{correlationId}}
 
 {
   "customerId": "CUS-1001",
   "priority": "EXPRESS",
   "pickup": {
-    "label": "North Warehouse",
-    "address": "Av. Example 100",
-    "latitude": -0.164,
-    "longitude": -78.472
+    "label": "Warehouse",
+    "address": "North Ave 10",
+    "latitude": -0.16,
+    "longitude": -78.47
   },
   "dropoff": {
     "label": "Customer",
-    "address": "Calle Example 200",
-    "latitude": -0.189,
-    "longitude": -78.487
+    "address": "South Ave 20",
+    "latitude": -0.19,
+    "longitude": -78.49
   }
 }
 
-### List orders
-GET http://localhost:3000/api/v1/orders
+### List orders - observe PENDING -> DISPATCHING -> ASSIGNED
+GET {{baseUrl}}/orders
+x-correlation-id: {{correlationId}}
 
-### Replace ORDER_ID after creating an order
-@orderId = ORDER_ID
-
-### Get order
-GET http://localhost:3000/api/v1/orders/{{orderId}}
-
-### Cancel order
-PATCH http://localhost:3000/api/v1/orders/{{orderId}}/cancel
+### List dispatch workflows
+GET {{baseUrl}}/dispatches
+x-correlation-id: {{correlationId}}

@@ -23,7 +23,7 @@ Exit criteria: [`docs/phase-1/acceptance-criteria.md`](./docs/phase-1/acceptance
 
 ---
 
-## Phase 2 — Event-Driven Services
+## Phase 2 — Event-Driven Services ✅
 
 **Goal:** introduce meaningful service decomposition and asynchronous integration.
 
@@ -41,6 +41,8 @@ Deliverables:
 Key demonstration:
 
 > synchronous REST for immediate operations vs event-driven communication for independent workflow progress.
+
+Exit criteria: [`docs/phase-2/acceptance-criteria.md`](./docs/phase-2/acceptance-criteria.md)
 
 ---
 

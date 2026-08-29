@@ -4,97 +4,158 @@
 
 > Decisiones rápidas. Entregas confiables.
 
-RouteFast es un proyecto backend orientado a demostrar ingeniería con **NestJS + TypeScript** sobre problemas reales de logística: asignación concurrente de repartidores, flujos distribuidos, colas, idempotencia, geolocalización, tracking en tiempo real, resiliencia, observabilidad y escalamiento horizontal.
+RouteFast es un proyecto de ingeniería backend diseñado para demostrar los problemas difíciles de logística de última milla: límites de dominio, microservicios, colas, orquestación, concurrencia, consistencia eventual, resiliencia y operación distribuida.
 
-La complejidad se introduce por fases para que cada decisión tenga un problema concreto que resolver y pueda defenderse técnicamente en una entrevista.
+## Estado actual — Fase 2: Event-Driven Services ✅
 
-## Problema central
-
-Una plataforma de delivery debe seguir siendo correcta cuando:
-
-- varios pedidos compiten por el mismo repartidor;
-- RabbitMQ entrega un evento más de una vez;
-- un servicio falla en mitad de una asignación;
-- el repartidor no responde;
-- llegan miles de actualizaciones GPS;
-- el proveedor de rutas se vuelve lento;
-- una transacción de base de datos se confirma pero la publicación del evento falla;
-- múltiples réplicas del mismo servicio procesan trabajo en paralelo.
-
-RouteFast se construirá específicamente para resolver y demostrar esos escenarios.
-
-## Fase 1 implementada
+La Fase 2 convierte el primer vertical slice de órdenes en un workflow distribuido real:
 
 ```text
 Cliente
-   ↓
-API Gateway :3000
-   ↓ HTTP + x-correlation-id
-Order Service :3001
-   ↓
-Application Use Cases
-   ↓
-Domain
-   ↓
-Repository Port
-   ↓
-TypeORM Adapter
-   ↓
-PostgreSQL :55432
+  ↓
+API Gateway
+  ↓ HTTP
+Order Service ───────► PostgreSQL Orders
+  │
+  │ order.ready_for_dispatch.v1
+  ▼
+RabbitMQ
+  ↓
+Dispatch Service ────► PostgreSQL Dispatch
+  │
+  │ driver.reservation_requested.v1
+  ▼
+RabbitMQ
+  ↓
+Driver Service ──────► PostgreSQL Drivers
+  │
+  └── driver.reserved.v1 / driver.reservation_failed.v1
 ```
 
-Incluye:
+### Implementado
 
-- monorepo NestJS;
-- API Gateway;
-- primer microservicio: Order Service;
-- agregado `Order` con reglas de estado;
-- Clean Architecture / Ports & Adapters;
-- PostgreSQL;
-- endpoints REST;
+- API Gateway NestJS;
+- Order Service;
+- Driver Service;
+- Dispatch Service;
+- base DDD / Clean Architecture;
+- bases de datos independientes por servicio;
+- RabbitMQ;
+- eventos de integración versionados;
+- CQRS selectivo en Dispatch Service;
+- propagación de `correlationId`;
+- acknowledgements manuales en consumidores;
 - health/readiness;
-- correlation IDs;
-- pruebas unitarias;
-- alcance, bounded contexts y ADRs.
+- Docker Compose;
+- pruebas del dominio;
+- ADRs y catálogo de eventos.
 
-## Lo que deliberadamente NO está todavía
+## Flujo principal
 
-RabbitMQ, Driver Service, Dispatch Orchestrator, Redis, PostGIS, Saga, Outbox/Inbox, WebSockets, Kubernetes y AWS pertenecen a fases posteriores. No se añaden en Foundation solo para aumentar artificialmente la lista de tecnologías.
+```text
+Crear Order
+   ↓
+order.ready_for_dispatch.v1
+   ↓
+Dispatch inicia búsqueda
+   ↓
+driver.reservation_requested.v1
+   ↓
+Driver Service reserva candidato
+   ↓
+driver.reserved.v1
+   ↓
+Dispatch = ASSIGNED
+   ↓
+dispatch.assigned.v1
+   ↓
+Order = ASSIGNED
+```
 
-## Documentación clave
+Cuando no existe un conductor disponible:
 
-- [`PROJECT_SCOPE.md`](./PROJECT_SCOPE.md): límites y no-objetivos.
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md): arquitectura actual y objetivo.
-- [`ROADMAP.md`](./ROADMAP.md): fases técnicas.
-- [`docs/domain/bounded-contexts.md`](./docs/domain/bounded-contexts.md): propiedad de cada dominio.
-- [`docs/adr`](./docs/adr): decisiones arquitectónicas.
+```text
+Driver Service
+   ↓
+driver.reservation_failed.v1
+   ↓
+Dispatch = FAILED
+   ↓
+dispatch.failed.v1
+   ↓
+Order vuelve a PENDING_DISPATCH
+```
 
-## Ejecución local
+## Complejidad técnica que demostramos
+
+- microservicios con ownership real de datos;
+- comunicación REST vs RabbitMQ según el tipo de interacción;
+- orquestación central en Dispatch;
+- CQRS para separar comandos de workflow y consultas operativas;
+- mensajes versionados;
+- propagación de correlación entre servicios;
+- consistencia eventual visible en el estado de Order y Dispatch.
+
+## Limitaciones deliberadas de Fase 2
+
+Todavía **no** afirmamos que el workflow sea production-safe:
+
+1. existe dual-write entre PostgreSQL y RabbitMQ;
+2. la reserva del driver todavía puede sufrir race conditions;
+3. no existe Consumer Inbox para deduplicación;
+4. no hay retry queues / DLQ replay;
+5. no existe timeout/compensación de asignación.
+
+Todo eso es exactamente el objetivo de la **Fase 3 — Reliability & Concurrency**.
+
+## Ejecutar localmente
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres
 npm install
+docker compose up -d
+```
+
+RabbitMQ Management:
+
+```text
+http://localhost:15672
+routefast / routefast
+```
+
+Terminales:
+
+```bash
 npm run start:order
+npm run start:driver
+npm run start:dispatch
 npm run start:gateway
 ```
 
-Gateway:
+Después utiliza [`routefast.http`](./routefast.http).
+
+## Endpoints
 
 ```text
-http://localhost:3000/api/v1
+POST  /api/v1/orders
+GET   /api/v1/orders
+GET   /api/v1/orders/:id
+PATCH /api/v1/orders/:id/cancel
+
+POST  /api/v1/drivers
+GET   /api/v1/drivers
+PATCH /api/v1/drivers/:id/availability
+
+GET   /api/v1/dispatches
+GET   /api/v1/dispatches/:id
 ```
 
-PostgreSQL local utiliza el puerto host `55432` para reducir conflictos con otras bases de datos de desarrollo.
+## Documentación relevante
 
-## Próxima fase
-
-**Phase 2 — Event-Driven Services**
-
-- Driver Service
-- Dispatch Service
-- RabbitMQ
-- contratos de eventos
-- CQRS donde aporte valor
-- bases de datos propiedad de cada servicio
-
+- [`PROJECT_SCOPE.md`](./PROJECT_SCOPE.md)
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- [`ROADMAP.md`](./ROADMAP.md)
+- [`PHASE_2_SUMMARY.md`](./PHASE_2_SUMMARY.md)
+- [`docs/phase-2/event-catalog.md`](./docs/phase-2/event-catalog.md)
+- [`docs/phase-2/sequence.md`](./docs/phase-2/sequence.md)
+- [`docs/adr`](./docs/adr)

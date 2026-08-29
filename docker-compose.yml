@@ -1,7 +1,7 @@
 services:
-  postgres:
+  order-postgres:
     image: postgres:16-alpine
-    container_name: routefast-postgres
+    container_name: routefast-order-postgres
     environment:
       POSTGRES_USER: routefast
       POSTGRES_PASSWORD: routefast
@@ -9,12 +9,66 @@ services:
     ports:
       - "55432:5432"
     volumes:
-      - routefast_postgres_data:/var/lib/postgresql/data
+      - routefast_order_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U routefast -d routefast_orders"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  driver-postgres:
+    image: postgres:16-alpine
+    container_name: routefast-driver-postgres
+    environment:
+      POSTGRES_USER: routefast
+      POSTGRES_PASSWORD: routefast
+      POSTGRES_DB: routefast_drivers
+    ports:
+      - "55433:5432"
+    volumes:
+      - routefast_driver_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routefast -d routefast_drivers"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  dispatch-postgres:
+    image: postgres:16-alpine
+    container_name: routefast-dispatch-postgres
+    environment:
+      POSTGRES_USER: routefast
+      POSTGRES_PASSWORD: routefast
+      POSTGRES_DB: routefast_dispatch
+    ports:
+      - "55434:5432"
+    volumes:
+      - routefast_dispatch_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routefast -d routefast_dispatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: routefast-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: routefast
+      RABBITMQ_DEFAULT_PASS: routefast
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - routefast_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
 volumes:
-  routefast_postgres_data:
+  routefast_order_postgres_data:
+  routefast_driver_postgres_data:
+  routefast_dispatch_postgres_data:
+  routefast_rabbitmq_data:

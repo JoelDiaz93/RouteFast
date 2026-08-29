@@ -196,3 +196,32 @@ Target deployment progression:
 4. Kubernetes with health probes and HPA;
 5. AWS deployment and CloudWatch integration.
 
+
+
+---
+
+## Phase 2 current deployment topology
+
+```text
+API Gateway :3000
+  ├── HTTP -> Order Service :3001 -> Order PostgreSQL :55432
+  ├── HTTP -> Driver Service :3002 -> Driver PostgreSQL :55433
+  └── HTTP -> Dispatch Service :3003 -> Dispatch PostgreSQL :55434
+
+Order / Driver / Dispatch
+       ↕
+RabbitMQ :5672
+Management :15672
+```
+
+### Queue ownership
+
+- `routefast.order.events` is consumed only by Order Service.
+- `routefast.driver.events` is consumed only by Driver Service.
+- `routefast.dispatch.events` is consumed only by Dispatch Service.
+
+Producers target a service queue using an explicit versioned event pattern. This Phase 2 topology is intentionally simple point-to-point messaging. Fan-out choreography for notifications, audit and analytics is introduced when those consumers exist.
+
+### Consistency semantics
+
+Phase 2 uses eventual consistency across Order, Dispatch and Driver. No distributed transaction spans service databases. Direct event publication is temporary and documented in ADR-006.

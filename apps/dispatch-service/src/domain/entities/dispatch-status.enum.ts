@@ -1,0 +1,5 @@
+export enum DispatchStatus {
+  SEARCHING_DRIVER = 'SEARCHING_DRIVER',
+  ASSIGNED = 'ASSIGNED',
+  FAILED = 'FAILED',
+}
