@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: routefast-postgres
+    environment:
+      POSTGRES_USER: routefast
+      POSTGRES_PASSWORD: routefast
+      POSTGRES_DB: routefast_orders
+    ports:
+      - "55432:5432"
+    volumes:
+      - routefast_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routefast -d routefast_orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  routefast_postgres_data:

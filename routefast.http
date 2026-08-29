@@ -1,0 +1,40 @@
+### Gateway health
+GET http://localhost:3000/api/v1/health
+x-correlation-id: demo-health-001
+
+### Order service readiness (direct/internal)
+GET http://localhost:3001/health/ready
+
+### Create order through Gateway
+POST http://localhost:3000/api/v1/orders
+Content-Type: application/json
+x-correlation-id: demo-order-001
+
+{
+  "customerId": "CUS-1001",
+  "priority": "EXPRESS",
+  "pickup": {
+    "label": "North Warehouse",
+    "address": "Av. Example 100",
+    "latitude": -0.164,
+    "longitude": -78.472
+  },
+  "dropoff": {
+    "label": "Customer",
+    "address": "Calle Example 200",
+    "latitude": -0.189,
+    "longitude": -78.487
+  }
+}
+
+### List orders
+GET http://localhost:3000/api/v1/orders
+
+### Replace ORDER_ID after creating an order
+@orderId = ORDER_ID
+
+### Get order
+GET http://localhost:3000/api/v1/orders/{{orderId}}
+
+### Cancel order
+PATCH http://localhost:3000/api/v1/orders/{{orderId}}/cancel
