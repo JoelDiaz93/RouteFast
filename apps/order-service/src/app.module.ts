@@ -24,9 +24,11 @@ import { TypeOrmOrderRepository } from './infrastructure/persistence/typeorm/typ
 import { OrderEventsController } from './interfaces/events/order-events.controller';
 import { OrdersController } from './interfaces/http/orders.controller';
 
+import { MetricsModule } from './observability/metrics.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    MetricsModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -36,6 +38,7 @@ import { OrdersController } from './interfaces/http/orders.controller';
         username: config.get<string>('ORDER_DB_USER', 'routefast'),
         password: config.get<string>('ORDER_DB_PASSWORD', 'routefast'),
         database: config.get<string>('ORDER_DB_NAME', 'routefast_orders'),
+        ssl: config.get<string>('ORDER_DB_SSL', 'false') === 'true',
         entities: [OrderOrmEntity, OutboxOrmEntity, InboxOrmEntity],
         synchronize: config.get<string>('ORDER_DB_SYNC', 'false') === 'true',
       }),

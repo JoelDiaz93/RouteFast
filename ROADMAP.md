@@ -1,135 +1,32 @@
-# RouteFast Engineering Roadmap
+# RouteFast Roadmap
 
-The roadmap is organized around technical risk, not UI milestones.
+RouteFast was developed by technical risk rather than by accumulating features.
 
-## Phase 1 — Foundation ✅
+| Phase | Goal | Status |
+|---|---|---|
+| 1 | Foundation: DDD/Clean Architecture, Gateway, Order, PostgreSQL | ✅ Complete |
+| 2 | Event-driven workflow: Driver, Dispatch, RabbitMQ, CQRS | ✅ Complete |
+| 3 | Reliability: Outbox/Inbox, idempotency, concurrency, Saga, retry/DLQ | ✅ Complete |
+| 4 | Logistics: PostGIS, Redis GEO, WebSockets, scoring, ETA/SLA | ✅ Complete |
+| 5 | Operability: OTel, Prometheus/Grafana, Jaeger, K8s, CI/CD, AWS blueprint | ✅ Complete |
+| 6 | Hardening: circuit breaker, profiling, KEDA, route heuristic, k6 | ✅ Complete |
+| 6.4–6.5 | Security/runtime hygiene: 0 production audit findings, runtime/load preflights | ✅ Complete |
+| 6.6 | Saturation experiment + portfolio evidence structure | 🚧 Stress result pending |
 
-**Goal:** establish domain boundaries and a clean, testable NestJS foundation.
+## Current gate
 
-Deliverables:
+Measured baseline at v0.6.5 is healthy at ~38 mixed iterations/s with 0% HTTP errors and 0 dropped iterations. The next engineering experiment is `npm run load:stress`, ramping approximately 50 → 100 → 200 → 400 iterations/s.
 
-- NestJS monorepo;
-- API Gateway;
-- Order Service;
-- DDD aggregate;
-- Clean Architecture / repository port;
-- PostgreSQL + TypeORM;
-- REST endpoints;
-- correlation IDs;
-- unit tests;
-- architecture documentation and ADRs.
+## Decision after stress
 
-Exit criteria: [`docs/phase-1/acceptance-criteria.md`](./docs/phase-1/acceptance-criteria.md)
+- If a repeatable saturation point is found: identify the bottleneck with Grafana/Jaeger, make **one** targeted optimization, rerun the identical profile and document before/after.
+- If no meaningful saturation signal is found: stop internal engineering expansion and finalize repository/portfolio presentation.
 
----
+## Explicitly out of scope unless justified later
 
-## Phase 2 — Event-Driven Services ✅
-
-**Goal:** introduce meaningful service decomposition and asynchronous integration.
-
-Deliverables:
-
-- Driver Service;
-- Dispatch Service;
-- RabbitMQ;
-- explicit integration events;
-- CQRS in Dispatch where justified;
-- contract versioning;
-- service-local databases;
-- Docker Compose for all services.
-
-Key demonstration:
-
-> synchronous REST for immediate operations vs event-driven communication for independent workflow progress.
-
-Exit criteria: [`docs/phase-2/acceptance-criteria.md`](./docs/phase-2/acceptance-criteria.md)
-
----
-
-## Phase 3 — Reliability & Concurrency ✅
-
-**Goal:** make dispatch correct under retries, duplicates, concurrent requests and partial failures.
-
-Deliverables:
-
-- Saga orchestration and explicit compensation states;
-- PostgreSQL row-level concurrency control for driver capacity;
-- order creation idempotency keys;
-- Transactional Outbox in all event-producing services;
-- Consumer Inbox and event IDs;
-- bounded RabbitMQ retry queues;
-- final DLQs;
-- BullMQ + Redis delayed assignment expiration;
-- late-reservation compensation;
-- compensation flow across Dispatch → Driver → Order.
-
-Exit documentation: [`docs/phase-3`](./docs/phase-3/)
-
-Key demonstration:
-
-> two orders cannot reserve the same unavailable capacity, and duplicate events cannot duplicate business effects.
-
----
-
-## Phase 4 — Geospatial & Real-Time Operations
-
-**Goal:** introduce the logistics-specific technical complexity.
-
-Deliverables:
-
-- PostgreSQL + PostGIS;
-- Redis GEO;
-- candidate driver search;
-- driver scoring engine;
-- Routing Service abstraction;
-- WebSocket tracking;
-- position ingestion policy;
-- SLA engine;
-- Operations Console.
-
-Key demonstration:
-
-> fast candidate discovery, real-time visibility, and business-driven assignment scoring.
-
----
-
-## Phase 5 — Observability, Cloud & Delivery
-
-**Goal:** demonstrate production operation and deployment maturity.
-
-Deliverables:
-
-- OpenTelemetry;
-- Prometheus;
-- Grafana;
-- Jaeger;
-- structured logging;
-- failure injection scenarios;
-- Docker images;
-- Kubernetes manifests;
-- readiness/liveness probes;
-- HPA;
-- GitHub Actions;
-- quality/security gates;
-- AWS deployment;
-- CloudWatch dashboards/alarms.
-
-Key demonstration:
-
-> diagnosing a failed delivery workflow across services and queues using traces, logs and metrics.
-
----
-
-## Optional Phase 6 — Optimization
-
-Only after the core architecture is reliable:
-
-- multi-order route batching;
-- capacity-aware routing heuristic;
-- advanced dispatch scoring;
-- simulated demand peaks;
-- performance profiling;
-- cache strategy evaluation.
-
-This phase explicitly avoids pretending that a portfolio project solves the full Vehicle Routing Problem optimally.
-
+- adding microservices only to increase service count;
+- replacing RabbitMQ/Redis/PostgreSQL without evidence;
+- exact/optimal VRP claims;
+- a production multi-region platform;
+- large consumer-facing UI as a substitute for backend evidence;
+- premature performance tuning without traces/metrics.

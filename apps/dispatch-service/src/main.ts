@@ -1,10 +1,12 @@
+import './observability/instrumentation';
 import 'reflect-metadata';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { AppModule } from './app.module';
+import { StructuredLogger } from './observability/structured-logger';
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { logger: new StructuredLogger('dispatch-service') });
   const config = app.get(ConfigService);
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.RMQ,

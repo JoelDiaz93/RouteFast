@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - api-gateway.yaml
+  - order-service.yaml
+  - driver-service.yaml
+  - dispatch-service.yaml
+  - tracking-service.yaml
+  - ingress.yaml

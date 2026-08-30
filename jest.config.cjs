@@ -7,6 +7,7 @@ module.exports = {
     'apps/order-service/src/**/*.(t|j)s',
     'apps/driver-service/src/**/*.(t|j)s',
     'apps/dispatch-service/src/**/*.(t|j)s',
+    'apps/tracking-service/src/**/*.(t|j)s',
     '!apps/**/main.ts',
     '!apps/**/*.module.ts',
     '!apps/**/interfaces/**',

@@ -22,6 +22,8 @@ export class DispatchTimeoutWorker implements OnApplicationBootstrap, OnModuleDe
         connection: {
           host: this.config.get<string>('REDIS_HOST', 'localhost'),
           port: Number(this.config.get<string>('REDIS_PORT', '6379')),
+          password: this.config.get<string>('REDIS_PASSWORD') || undefined,
+          tls: this.config.get<string>('REDIS_TLS', 'false') === 'true' ? {} : undefined,
         },
         concurrency: 4,
       },

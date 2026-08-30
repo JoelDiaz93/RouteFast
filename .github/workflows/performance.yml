@@ -1,0 +1,52 @@
+name: Performance smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  k6-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build applications
+        run: npm run build
+      - name: Start infrastructure
+        run: |
+          cp .env.example .env
+          docker compose up -d
+          docker compose ps
+      - name: Start RouteFast services
+        run: |
+          npm run start:order:prod > order.log 2>&1 &
+          npm run start:driver:prod > driver.log 2>&1 &
+          npm run start:dispatch:prod > dispatch.log 2>&1 &
+          npm run start:tracking:prod > tracking.log 2>&1 &
+          npm run start:gateway:prod > gateway.log 2>&1 &
+      - name: Wait for gateway
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:3000/api/v1/health/ready > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat gateway.log || true
+          exit 1
+      - uses: grafana/setup-k6-action@v1
+      - name: k6 smoke budget
+        run: k6 run performance/k6/smoke.js
+      - name: k6 idempotency budget
+        run: k6 run performance/k6/idempotency.js
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: routefast-performance-logs
+          path: '*.log'

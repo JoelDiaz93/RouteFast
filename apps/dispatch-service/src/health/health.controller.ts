@@ -4,6 +4,9 @@ import { DataSource } from 'typeorm';
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}
   @Get() health(): object { return { service: 'dispatch-service', status: 'ok' }; }
+  @Get('live')
+  live(): object { return { service: 'dispatch-service', status: 'ok', phase: 5 }; }
+
   @Get('ready') async ready(): Promise<object> {
     try { await this.dataSource.query('SELECT 1'); return { service: 'dispatch-service', status: 'ready' }; }
     catch { throw new ServiceUnavailableException('dispatch database unavailable'); }

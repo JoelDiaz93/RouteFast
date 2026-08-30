@@ -1,0 +1,51 @@
+name: Progressive Stress (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Quality/build gate
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Start infrastructure
+        run: |
+          cp .env.example .env
+          docker compose up -d
+      - name: Start compiled RouteFast services
+        run: |
+          npm run start:order > order.log 2>&1 &
+          npm run start:driver > driver.log 2>&1 &
+          npm run start:dispatch > dispatch.log 2>&1 &
+          npm run start:tracking > tracking.log 2>&1 &
+          npm run start:gateway > gateway.log 2>&1 &
+      - name: Readiness gate
+        run: npm run load:preflight
+      - uses: grafana/setup-k6-action@v1
+      - name: Progressive stress
+        run: |
+          mkdir -p performance/results
+          k6 run --summary-export=performance/results/stress-latest.json performance/k6/stress.js || true
+          npm run benchmark:report
+      - name: Upload stress evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: routefast-stress-evidence
+          path: |
+            performance/results/STRESS_LATEST.md
+            performance/results/stress-latest.json
+            *.log

@@ -10,6 +10,9 @@ export class HealthController {
     return { status: 'ok', service: 'order-service' };
   }
 
+  @Get('live')
+  live(): object { return { service: 'order-service', status: 'ok', phase: 5 }; }
+
   @Get('ready')
   async ready(): Promise<{ status: string; database: string }> {
     try {

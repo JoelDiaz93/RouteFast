@@ -16,8 +16,14 @@ export class DispatchClient {
   get(id: string, correlationId: string): Promise<unknown> {
     return this.request('get', `/dispatches/${encodeURIComponent(id)}`, correlationId);
   }
+  decision(id: string, correlationId: string): Promise<unknown> {
+    return this.request('get', `/dispatches/${encodeURIComponent(id)}/decision`, correlationId);
+  }
   cancel(id: string, body: CancelDispatchDto, correlationId: string): Promise<unknown> {
     return this.request('post', `/dispatches/${encodeURIComponent(id)}/cancel`, correlationId, body);
+  }
+  routePlan(body: Record<string, unknown>, correlationId: string): Promise<unknown> {
+    return this.request('post', '/optimization/route-plan', correlationId, body);
   }
 
   private async request(

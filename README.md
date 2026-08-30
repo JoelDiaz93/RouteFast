@@ -4,319 +4,168 @@
 
 > Fast decisions. Reliable deliveries.
 
-RouteFast is a backend-focused engineering project for the hard parts of last-mile logistics: service boundaries, asynchronous workflows, concurrent driver assignment, delivery guarantees, geospatial search, resilience, observability and horizontal scale.
+RouteFast is a backend engineering case study built around the difficult parts of last-mile logistics: **distributed workflow correctness, concurrent driver assignment, reliable messaging, real-time geospatial tracking, failure containment and measurable operability**.
 
-The project evolves by technical risk. Each phase intentionally exposes a new failure mode before introducing the pattern that solves it.
+It is intentionally not a delivery CRUD demo. The project asks a harder question:
 
----
+> How can orders, drivers, assignments and GPS events remain correct when messages are duplicated, services fail mid-workflow and many operations happen concurrently?
 
-## Product objective
+## Evidence snapshot
 
-RouteFast coordinates the backend lifecycle behind a delivery:
+| Area | Evidence |
+|---|---|
+| Quality | 10 Jest suites / **27 tests passing**; strict TypeScript; all 5 NestJS apps build |
+| Security | `npm audit --omit=dev` → **0 production vulnerabilities reported** after controlled hardening |
+| Smoke baseline | p95 **45.27 ms**, p99 **73.88 ms**, 0% HTTP errors |
+| Idempotency | p95 **118.36 ms**, duplicate consistency **100%**, 0% errors |
+| Mixed baseline | **~38 iter/s**, 0% errors, 0 dropped iterations |
+| Mixed Orders | p95 **66.29 ms** |
+| Mixed Tracking | p95 **17.65 ms** |
 
-```text
-Order created
-    ↓
-Dispatch workflow
-    ↓
-Find / reserve driver
-    ↓
-Assignment
-    ↓
-Pickup
-    ↓
-In transit
-    ↓
-Delivered
+These are **local measured baselines**, not production capacity claims. See [performance evidence](./docs/performance/BASELINE_v0.6.5.md) and [security evidence](./docs/security/SECURITY_BASELINE_v0.6.4.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Client[Client / Operations] --> GW[API Gateway]
+  GW --> Order[Order Service]
+  GW --> Driver[Driver Service]
+  GW --> Dispatch[Dispatch Service]
+  GW --> Tracking[Tracking Service]
+
+  Order --> ODB[(PostgreSQL)]
+  Driver --> DDB[(PostgreSQL)]
+  Dispatch --> XDB[(PostgreSQL)]
+  Tracking --> PGIS[(PostGIS)]
+  Tracking --> Redis[(Redis GEO)]
+
+  Order <--> RMQ[(RabbitMQ)]
+  Driver <--> RMQ
+  Dispatch <--> RMQ
+  Dispatch --> Driver
+  Dispatch --> Tracking
+
+  Tracking --> WS[Socket.IO]
+  Order -. traces/metrics .-> Obs[OTel / Prometheus]
+  Driver -.-> Obs
+  Dispatch -.-> Obs
+  Tracking -.-> Obs
+  GW -.-> Obs
 ```
 
-It is not primarily a consumer delivery UI. The core product is the **distributed dispatch and operations platform**.
+**Ownership is non-negotiable:** Order owns order state, Driver owns capacity/reservations, Dispatch owns assignment policy, and Tracking owns location. Services do not read each other's tables.
 
-## Engineering problem
+Detailed diagrams: [system context](./docs/diagrams/system-context.md), [dispatch Saga](./docs/diagrams/dispatch-saga.md), [tracking](./docs/diagrams/tracking-flow.md), [observability](./docs/diagrams/observability.md).
 
-The system must eventually remain correct when:
+## Engineering decisions that matter
 
-- many orders compete for the same driver capacity;
-- messages are duplicated or delayed;
-- a service fails halfway through assignment;
-- a database commit succeeds but broker publication fails;
-- no driver answers in time;
-- GPS events arrive continuously;
-- routing providers become unavailable;
-- services scale horizontally;
-- operators must trace a delivery across service and queue boundaries.
+- **Transactional Outbox + Consumer Inbox** for reliable at-least-once messaging without pretending RabbitMQ is exactly-once.
+- **Idempotency keys + PostgreSQL locks** to protect duplicate requests and concurrent driver reservation.
+- **Saga compensation** instead of distributed database transactions.
+- **RabbitMQ retries + DLQ** for bounded asynchronous failure handling.
+- **Redis GEO + PostGIS**: low-latency current location and durable spatial history serve different responsibilities.
+- **Out-of-order GPS protection**: old events remain historical but cannot rewind the current position.
+- **Circuit breakers** around synchronous Dispatch dependencies to contain cascading failures.
+- **OpenTelemetry + Prometheus/Grafana + Jaeger** for trace/metric-based diagnosis.
+- **Kubernetes HPA + optional KEDA** for portable CPU scaling and backlog-aware consumer scaling.
+- **Paired-insertion route planning** as an explicitly bounded heuristic, not a false optimal-VRP claim.
 
-A CRUD-only architecture does not address these conditions.
+The rationale is recorded in the [ADR index](./docs/adr/README.md).
 
----
+## Technology
 
-# Current state — Phase 3: Reliability & Concurrency ✅
-
-Phase 3 hardens the distributed dispatch workflow against duplicate messages, broker/database dual-write failures, concurrent driver reservations and partial Saga failures.
-
-```text
-Client
-  ↓
-API Gateway
-  ↓ HTTP
-Order Service ───────────────► Order PostgreSQL
-  │                              │
-  │                              └── business state + Outbox (atomic)
-  ▼
-Outbox Worker → RabbitMQ → Dispatch Service ──► Dispatch PostgreSQL
-                              │                     │
-                              │                     ├── Outbox / Inbox
-                              │                     └── BullMQ timeout → Redis
-                              ▼
-                           RabbitMQ
-                              ↓
-                         Driver Service ─────────► Driver PostgreSQL
-                              │                     │
-                              │                     └── row-locked capacity reservation
-                              └── Outbox → RabbitMQ
-```
-
-### Implemented in Phase 3
-
-- Transactional Outbox in Order, Driver and Dispatch services;
-- Consumer Inbox and integration `eventId` deduplication;
-- order creation `Idempotency-Key` support;
-- bounded RabbitMQ retry queues and final DLQs;
-- concurrency-safe driver reservation with PostgreSQL row locking;
-- BullMQ + Redis delayed assignment expiration;
-- Saga compensation for assigned deliveries;
-- late-reservation compensation after timeout/failure;
-- explicit `COMPENSATING` / `CANCELLED` dispatch states;
-- operator cancellation endpoint;
-- correlation IDs preserved across HTTP, Outbox and RabbitMQ.
-
-### Reliability model
-
-```text
-Business change
-      +
-Outbox event
-      │
-      └── ONE local DB transaction
-                ↓
-           async publisher
-                ↓
-             RabbitMQ
-                ↓
-          Consumer Inbox
-                ↓
-        idempotent business effect
-```
-
-RouteFast deliberately uses **at-least-once delivery**, not a false "exactly once" claim. Outbox publication may duplicate an event after a crash; the event ID, Inbox and idempotent state transitions make that safe.
-
-### Concurrency invariant
-
-```text
-reserved orders <= driver capacity
-```
-
-Driver Service reserves capacity inside a PostgreSQL transaction with a row-level write lock. Concurrent workers cannot mutate the same candidate reservation simultaneously.
-
-### Saga compensation
-
-```text
-Assigned Dispatch
-      ↓ operator/system cancellation
-COMPENSATING
-      ↓
-driver.release_requested.v1
-      ↓
-Driver releases reservation
-      ↓
-driver.released.v1
-      ↓
-Dispatch = CANCELLED
-      ↓
-dispatch.cancelled.v1
-      ↓
-Order = CANCELLED
-```
-
-A late `driver.reserved.v1` arriving after an assignment timeout is also compensated rather than leaking driver capacity.
-
-### Retry / DLQ topology
-
-```text
-main queue
-   ↓ handler failure
-retry queue (TTL)
-   ↓
-main queue
-   ↓ retries exhausted
-DLQ
-```
-
-See [`PHASE_3_SUMMARY.md`](./PHASE_3_SUMMARY.md), [`docs/phase-3/reliability-flow.md`](./docs/phase-3/reliability-flow.md) and [`docs/phase-3/concurrency.md`](./docs/phase-3/concurrency.md).
-
----
-
-## Repository structure
-
-```text
-RouteFast/
-├── apps/
-│   ├── api-gateway/
-│   ├── order-service/
-│   ├── driver-service/
-│   └── dispatch-service/
-├── docs/
-│   ├── adr/
-│   ├── domain/
-│   ├── phase-1/
-│   ├── phase-2/
-│   └── phase-3/
-├── ARCHITECTURE.md
-├── PROJECT_SCOPE.md
-├── ROADMAP.md
-├── PHASE_1_SUMMARY.md
-├── PHASE_2_SUMMARY.md
-├── PHASE_3_SUMMARY.md
-├── docker-compose.yml
-└── routefast.http
-```
-
-**Services do not share domain entities, repositories or database tables.** Integration contracts are explicit external messages rather than shared domain models.
-
----
-
-## API Gateway
-
-Base URL: `http://localhost:3000/api/v1`
-
-### Orders
-
-```http
-POST  /orders
-GET   /orders
-GET   /orders/:orderId
-PATCH /orders/:orderId/cancel
-```
-
-### Drivers
-
-```http
-POST  /drivers
-GET   /drivers
-PATCH /drivers/:driverId/availability
-```
-
-### Dispatch operations
-
-```http
-GET /dispatches
-GET  /dispatches/:dispatchId
-POST /dispatches/:dispatchId/cancel
-```
-
-Use [`routefast.http`](./routefast.http) for the current reliability/compensation smoke flow.
-
----
+`NestJS` · `TypeScript` · `PostgreSQL` · `PostGIS` · `RabbitMQ` · `Redis` · `BullMQ` · `Socket.IO` · `OpenTelemetry` · `Prometheus` · `Grafana` · `Jaeger` · `Docker` · `Kubernetes` · `KEDA` · `GitHub Actions` · `AWS blueprint` · `k6`
 
 ## Run locally
 
-Requirements:
+Requirements: Node.js 22+, Docker Desktop.
 
-- Node.js 22+
-- npm 10+
-- Docker / Docker Compose
-
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 npm install
-docker compose up -d
-```
-
-RabbitMQ Management:
-
-```text
-http://localhost:15672
-user: routefast
-password: routefast
-```
-
-Run each application in a separate terminal:
-
-```bash
-npm run start:order
-npm run start:driver
-npm run start:dispatch
-npm run start:gateway
-```
-
-Then execute the requests in `routefast.http`.
-
-### Quality commands
-
-```bash
 npm run typecheck
 npm test
-npm run test:cov
 npm run build
+
+docker compose --profile observability up -d
+npm run start:all:no-build
 ```
 
----
+Keep the application terminal running. In a second terminal:
 
-## Target technology path
+```powershell
+npm run load:preflight
+npm run load:smoke
+npm run load:idempotency
+npm run load:mixed
+```
 
-| Area | Technology / pattern |
+Before starting all services you can verify ports `3000..3004` are free:
+
+```powershell
+npm run runtime:preflight
+```
+
+## Find the saturation point
+
+The baseline workload is intentionally below saturation. The next experiment ramps approximately:
+
+```text
+50/s → 100/s → 200/s → 400/s
+```
+
+across order creation and GPS ingestion.
+
+```powershell
+npm run load:stress
+```
+
+The run saves a raw summary under `performance/results/` and generates a Markdown snapshot. See [stress-test methodology](./docs/performance/STRESS_TEST.md).
+
+**Optimization rule:** change no code until traces and metrics identify a measured bottleneck. Then make one targeted optimization and rerun the exact same profile.
+
+## Observability
+
+| Tool | Local URL |
 |---|---|
-| Backend | NestJS + TypeScript |
-| API | REST |
-| Domain | DDD + Ports & Adapters |
-| Workflow | CQRS + Saga orchestration |
-| Messaging | RabbitMQ |
-| Persistence | PostgreSQL / PostGIS |
-| Reliability | Outbox, Inbox, idempotency, retries, DLQ |
-| Coordination | Redis + BullMQ |
-| Geospatial | Redis GEO + PostGIS |
-| Real time | WebSockets |
-| Observability | OpenTelemetry, Prometheus, Grafana, Jaeger |
-| Containers | Docker |
-| Orchestration | Kubernetes |
-| Cloud | AWS + CloudWatch |
-| Delivery | GitHub Actions / CI/CD |
+| Grafana | `http://localhost:3005` |
+| Prometheus | `http://localhost:9090` |
+| Jaeger | `http://localhost:16686` |
+| RabbitMQ Management | `http://localhost:15672` |
 
----
+Logs are structured JSON and carry `correlationId` plus OpenTelemetry `traceId` where a span is active.
 
-## Engineering principles
+## Cloud / delivery
 
-1. **Correctness before scale.**
-2. **Each bounded context owns its data and invariants.**
-3. **No cross-service database access.**
-4. **Consistency semantics are explicit.**
-5. **Complexity must solve a demonstrated failure mode.**
-6. **CQRS and events are selective tools, not architectural decoration.**
-7. **Observability begins with correlation and grows with the system.**
-8. **Known reliability gaps are documented rather than hidden.**
+The repository includes:
 
----
+- multi-stage Docker build for five independently deployable apps;
+- Kubernetes base manifests + HPA;
+- optional KEDA RabbitMQ queue-depth overlay;
+- GitHub Actions typecheck/test/build/security/container scan;
+- CodeQL and Trivy;
+- GHCR release-image workflow;
+- AWS target blueprint using EKS, RDS/PostGIS, Amazon MQ, ElastiCache and ADOT/CloudWatch/X-Ray.
 
-## Documentation
+## Documentation map
 
-- [`PROJECT_SCOPE.md`](./PROJECT_SCOPE.md)
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-- [`ROADMAP.md`](./ROADMAP.md)
-- [`PHASE_2_SUMMARY.md`](./PHASE_2_SUMMARY.md)
-- [`docs/domain/bounded-contexts.md`](./docs/domain/bounded-contexts.md)
-- [`docs/phase-2/event-catalog.md`](./docs/phase-2/event-catalog.md)
-- [`docs/phase-2/sequence.md`](./docs/phase-2/sequence.md)
-- [`docs/adr`](./docs/adr)
+- [Architecture](./ARCHITECTURE.md)
+- [Project scope](./PROJECT_SCOPE.md)
+- [ADR index](./docs/adr/README.md)
+- [Engineering case study](./docs/portfolio/CASE_STUDY.md)
+- [Interview guide](./docs/portfolio/INTERVIEW_GUIDE.md)
+- [Performance baseline](./docs/performance/BASELINE_v0.6.5.md)
+- [Progressive stress test](./docs/performance/STRESS_TEST.md)
+- [Security baseline](./docs/security/SECURITY_BASELINE_v0.6.4.md)
+- [Evidence screenshot checklist](./docs/evidence/SCREENSHOT_CHECKLIST.md)
+- [Roadmap / scope boundary](./ROADMAP.md)
 
-## Portfolio positioning
+## Project boundary
 
-RouteFast is designed to demonstrate more than NestJS familiarity:
+RouteFast is now in **evidence-driven hardening mode**. New microservices or patterns are not added by default. Future engineering changes must be justified by a measured reliability, performance or product requirement.
 
-- defining service boundaries;
-- choosing synchronous vs asynchronous communication;
-- modeling state transitions and invariants;
-- implementing event-driven workflows;
-- applying CQRS where justified;
-- reasoning about consistency and duplicate delivery;
-- preparing for concurrency, compensation and failure recovery;
-- operating independently deployable services.
+
+## Progressive stress evidence
+
+The first saturation run is recorded in [`docs/performance/STRESS_BASELINE_v0.6.6.md`](docs/performance/STRESS_BASELINE_v0.6.6.md). The first explicit saturation signal appeared after entering the ~200 operations/s target level. v0.6.9 preserves the single controlled hot-path optimization—successful-request access-log sampling—and hardens the Windows benchmark launcher while keeping the same concurrently-based five-service runtime for a valid before/after comparison.

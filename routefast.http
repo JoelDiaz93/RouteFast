@@ -1,6 +1,8 @@
 @baseUrl = http://localhost:3000/api/v1
-@correlationId = demo-routefast-phase3
-@idempotencyKey = demo-order-phase3-001
+@correlationId = demo-routefast-phase4
+@idempotencyKey = demo-order-phase4-001
+@driverId = REPLACE_WITH_DRIVER_ID
+@dispatchId = REPLACE_WITH_DISPATCH_ID
 
 ### Gateway health
 GET {{baseUrl}}/health
@@ -13,14 +15,49 @@ x-correlation-id: {{correlationId}}
 
 {
   "displayName": "Driver One",
-  "capacity": 1
+  "capacity": 2
 }
 
-### List drivers
-GET {{baseUrl}}/drivers
+### Publish a fresh driver location through the Gateway REST fallback
+### Replace @driverId with the id returned above.
+POST {{baseUrl}}/tracking/locations
+Content-Type: application/json
 x-correlation-id: {{correlationId}}
 
-### Create order - Outbox publishes asynchronously
+{
+  "driverId": "{{driverId}}",
+  "latitude": -0.1605,
+  "longitude": -78.4695,
+  "speedKph": 26,
+  "headingDegrees": 190
+}
+
+### Find fresh drivers around the pickup using Redis GEO
+POST {{baseUrl}}/tracking/nearby
+Content-Type: application/json
+x-correlation-id: {{correlationId}}
+
+{
+  "latitude": -0.1600,
+  "longitude": -78.4700,
+  "radiusKm": 8,
+  "limit": 20,
+  "candidateDriverIds": ["{{driverId}}"],
+  "maxAgeSeconds": 90
+}
+
+### Estimate pickup ETA for the driver
+POST {{baseUrl}}/tracking/eta
+Content-Type: application/json
+x-correlation-id: {{correlationId}}
+
+{
+  "driverId": "{{driverId}}",
+  "latitude": -0.1600,
+  "longitude": -78.4700
+}
+
+### Create order - Dispatch now performs geo-aware scoring before reservation
 POST {{baseUrl}}/orders
 Content-Type: application/json
 x-correlation-id: {{correlationId}}
@@ -32,19 +69,18 @@ Idempotency-Key: {{idempotencyKey}}
   "pickup": {
     "label": "Warehouse",
     "address": "North Ave 10",
-    "latitude": -0.16,
-    "longitude": -78.47
+    "latitude": -0.1600,
+    "longitude": -78.4700
   },
   "dropoff": {
     "label": "Customer",
     "address": "South Ave 20",
-    "latitude": -0.19,
-    "longitude": -78.49
+    "latitude": -0.1900,
+    "longitude": -78.4900
   }
 }
 
-### Repeat exactly the same request with same Idempotency-Key
-### Expected: same persisted order; no second initial dispatch event.
+### Repeat with same idempotency key - expected same Order
 POST {{baseUrl}}/orders
 Content-Type: application/json
 x-correlation-id: {{correlationId}}
@@ -56,28 +92,35 @@ Idempotency-Key: {{idempotencyKey}}
   "pickup": {
     "label": "Warehouse",
     "address": "North Ave 10",
-    "latitude": -0.16,
-    "longitude": -78.47
+    "latitude": -0.1600,
+    "longitude": -78.4700
   },
   "dropoff": {
     "label": "Customer",
     "address": "South Ave 20",
-    "latitude": -0.19,
-    "longitude": -78.49
+    "latitude": -0.1900,
+    "longitude": -78.4900
   }
 }
 
-### List orders - observe eventual state
+### Observe eventual Order state
 GET {{baseUrl}}/orders
 x-correlation-id: {{correlationId}}
 
-### List dispatch workflows
+### Observe Dispatch state
 GET {{baseUrl}}/dispatches
 x-correlation-id: {{correlationId}}
 
-### Get a dispatch (replace id)
-@dispatchId = REPLACE_WITH_DISPATCH_ID
-GET {{baseUrl}}/dispatches/{{dispatchId}}
+### Inspect the score-ranked decision for a dispatch
+GET {{baseUrl}}/dispatches/{{dispatchId}}/decision
+x-correlation-id: {{correlationId}}
+
+### Get latest hot location
+GET {{baseUrl}}/tracking/drivers/{{driverId}}/latest
+x-correlation-id: {{correlationId}}
+
+### Get durable PostGIS history
+GET {{baseUrl}}/tracking/drivers/{{driverId}}/history?limit=20
 x-correlation-id: {{correlationId}}
 
 ### Trigger Saga compensation for an ASSIGNED dispatch
@@ -87,4 +130,28 @@ x-correlation-id: {{correlationId}}
 
 {
   "reason": "OPERATOR_TEST"
+}
+
+### Phase 6 — capacity-aware multi-order route planning
+POST {{baseUrl}}/optimization/route-plan
+Content-Type: application/json
+x-correlation-id: demo-routefast-phase6-optimizer
+
+{
+  "origin": { "latitude": -0.1807, "longitude": -78.4678 },
+  "vehicleCapacity": 2,
+  "orders": [
+    {
+      "orderId": "ORD-A",
+      "demand": 1,
+      "pickup": { "latitude": -0.1700, "longitude": -78.4700 },
+      "dropoff": { "latitude": -0.1900, "longitude": -78.4900 }
+    },
+    {
+      "orderId": "ORD-B",
+      "demand": 1,
+      "pickup": { "latitude": -0.1750, "longitude": -78.4650 },
+      "dropoff": { "latitude": -0.1850, "longitude": -78.4800 }
+    }
+  ]
 }

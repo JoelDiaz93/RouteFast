@@ -43,6 +43,15 @@
       "compilerOptions": {
         "tsConfigPath": "apps/dispatch-service/tsconfig.app.json"
       }
+    },
+    "tracking-service": {
+      "type": "application",
+      "root": "apps/tracking-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/tracking-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/tracking-service/tsconfig.app.json"
+      }
     }
   }
 }

@@ -50,15 +50,34 @@ services:
       timeout: 3s
       retries: 10
 
+  tracking-postgis:
+    image: postgis/postgis:16-3.4
+    container_name: routefast-tracking-postgis
+    environment:
+      POSTGRES_USER: routefast
+      POSTGRES_PASSWORD: routefast
+      POSTGRES_DB: routefast_tracking
+    ports:
+      - "55435:5432"
+    volumes:
+      - routefast_tracking_postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routefast -d routefast_tracking"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: routefast-rabbitmq
+    command: ["sh", "-c", "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"]
     environment:
       RABBITMQ_DEFAULT_USER: routefast
       RABBITMQ_DEFAULT_PASS: routefast
     ports:
       - "5672:5672"
       - "15672:15672"
+      - "15692:15692"
     volumes:
       - routefast_rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -81,9 +100,71 @@ services:
       timeout: 3s
       retries: 10
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: routefast-jaeger
+    profiles: ["observability"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    container_name: routefast-otel-collector
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.local.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: routefast-prometheus
+    profiles: ["observability"]
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: routefast-grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: routefast
+      GF_SECURITY_ADMIN_PASSWORD: routefast
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3005:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+
+  k6:
+    image: grafana/k6:2.2.0
+    profiles: ["performance"]
+    environment:
+      BASE_URL: ${K6_BASE_URL:-http://host.docker.internal:3000/api/v1}
+    volumes:
+      - ./performance/k6:/scripts:ro
+      - ./performance/results:/results
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+
 volumes:
   routefast_order_postgres_data:
   routefast_driver_postgres_data:
   routefast_dispatch_postgres_data:
+  routefast_tracking_postgis_data:
   routefast_rabbitmq_data:
   routefast_redis_data:

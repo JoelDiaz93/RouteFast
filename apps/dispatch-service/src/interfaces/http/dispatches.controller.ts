@@ -6,11 +6,16 @@ import { DispatchStatus } from '../../domain/entities/dispatch-status.enum';
 import { DispatchView } from '../../application/queries/dispatch.view';
 import { GetDispatchQuery } from '../../application/queries/get-dispatch.query';
 import { ListDispatchesQuery } from '../../application/queries/list-dispatches.query';
+import { DispatchDecisionReader } from '../../infrastructure/persistence/typeorm/dispatch-decision.reader';
 import { CancelDispatchDto } from './dto/cancel-dispatch.dto';
 
 @Controller('dispatches')
 export class DispatchesController {
-  constructor(private readonly queryBus: QueryBus, private readonly commandBus: CommandBus) {}
+  constructor(
+    private readonly queryBus: QueryBus,
+    private readonly commandBus: CommandBus,
+    private readonly decisionReader: DispatchDecisionReader,
+  ) {}
 
   @Get()
   list(): Promise<DispatchView[]> { return this.queryBus.execute(new ListDispatchesQuery()); }
@@ -20,6 +25,13 @@ export class DispatchesController {
     const dispatch = await this.queryBus.execute<GetDispatchQuery, DispatchView | null>(new GetDispatchQuery(id));
     if (!dispatch) throw new NotFoundException(`Dispatch ${id} not found`);
     return dispatch;
+  }
+
+  @Get(':dispatchId/decision')
+  async decision(@Param('dispatchId') dispatchId: string) {
+    const decision = await this.decisionReader.findByDispatchId(dispatchId);
+    if (!decision) throw new NotFoundException(`No scoring decision for dispatch ${dispatchId}`);
+    return decision;
   }
 
   @Post(':dispatchId/cancel')

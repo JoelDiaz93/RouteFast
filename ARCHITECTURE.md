@@ -1,293 +1,140 @@
 # RouteFast Architecture
 
-## Architecture goals
+## Current architecture — v0.6.6
 
-RouteFast is designed to demonstrate how a logistics platform can evolve from a simple REST foundation into a reliable distributed system without introducing distributed complexity before it is required.
+RouteFast is a distributed last-mile logistics platform composed of five independently deployable NestJS applications. Each bounded context owns its persistence and invariants; integration happens through HTTP or explicit RabbitMQ events.
 
-The architecture therefore has two views:
+```mermaid
+flowchart TD
+  Client[Client / Operations] --> GW[API Gateway :3000]
+  GW --> O[Order Service :3001]
+  GW --> R[Driver Service :3002]
+  GW --> D[Dispatch Service :3003]
+  GW --> T[Tracking Service :3004]
 
-1. **Current architecture** — what exists in Phase 1.
-2. **Target architecture** — the intentional end-state for later phases.
+  O --> ODB[(Order PostgreSQL)]
+  R --> RDB[(Driver PostgreSQL)]
+  D --> DDB[(Dispatch PostgreSQL)]
+  T --> PG[(PostGIS)]
+  T --> Redis[(Redis GEO / BullMQ)]
 
----
-
-# Current architecture — Phase 1
-
-```text
-Client
-  │
-  ▼
-API Gateway :3000
-  │  HTTP + x-correlation-id
-  ▼
-Order Service :3001
-  │
-  ├── Interfaces / HTTP
-  ├── Application Use Cases
-  ├── Domain
-  └── Infrastructure / TypeORM
-          │
-          ▼
-     PostgreSQL
+  O <--> MQ[(RabbitMQ)]
+  R <--> MQ
+  D <--> MQ
+  D -->|candidate capacity| R
+  D -->|nearby / ETA| T
+  T --> WS[Socket.IO clients]
 ```
 
-## Dependency direction inside Order Service
+## Bounded-context ownership
 
-```text
-HTTP Controller
-      │
-      ▼
-Application Use Case
-      │
-      ▼
-Domain
+| Context | Owns | Does not own |
+|---|---|---|
+| Order | order lifecycle, idempotent creation | driver capacity, GPS |
+| Driver | driver availability, capacity, reservations | dispatch policy |
+| Dispatch | assignment workflow, scoring, decision audit, route heuristic | direct driver mutation |
+| Tracking | current location, GPS history, nearby search, ETA approximation | driver capacity |
+| Gateway | external HTTP facade and correlation propagation | business state |
 
-Application ───► Repository Port
-                    ▲
-                    │
-             TypeORM Adapter
-```
+No cross-service database reads are allowed.
 
-The domain layer does not import NestJS, TypeORM, PostgreSQL, HTTP, or RabbitMQ.
+## Communication
 
----
+### Synchronous HTTP
 
-# Target architecture
-
-```text
-                                ┌───────────────┐
-                                │ Operations UI │
-                                └───────┬───────┘
-                                        │
-┌─────────────┐                  ┌───────▼───────┐
-│ Client Apps │─────────────────►│  API Gateway  │
-└─────────────┘                  └───────┬───────┘
-                                        │
-               ┌────────────────────────┼────────────────────────┐
-               │                        │                        │
-         ┌─────▼─────┐            ┌─────▼──────┐          ┌─────▼──────┐
-         │   Order   │            │   Driver   │          │  Tracking  │
-         │  Service  │            │  Service   │          │  Service   │
-         └─────┬─────┘            └─────┬──────┘          └─────┬──────┘
-               │                        │                        │
-               └──────────────┬─────────┴─────────┬──────────────┘
-                              │                   │
-                              ▼                   │
-                     ┌─────────────────┐           │
-                     │    RabbitMQ     │◄──────────┘
-                     └────────┬────────┘
-                              │
-                       ┌──────▼──────┐
-                       │  Dispatch   │
-                       │ Orchestrator│
-                       └──────┬──────┘
-                              │
-              ┌───────────────┼────────────────┐
-              │               │                │
-        ┌─────▼─────┐   ┌─────▼──────┐  ┌─────▼──────────┐
-        │  Routing  │   │Notification│  │ Operations/Audit│
-        │  Service  │   │  Service   │  │     Service     │
-        └───────────┘   └────────────┘  └────────────────┘
-```
-
----
-
-## Communication rules
-
-### HTTP
-
-Use synchronous HTTP for:
-
-- client-facing commands where acceptance/rejection must be immediate;
-- queries that require current authoritative data;
-- internal calls only when the caller cannot continue without the response.
+Used when the caller requires an immediate authoritative answer: API facade calls, Dispatch candidate queries and Tracking proximity/ETA queries. Dispatch wraps critical synchronous dependencies in circuit breakers.
 
 ### RabbitMQ
 
-Use asynchronous messages for:
+Used for workflow progression and integration events. Delivery semantics are **at least once**.
 
-- domain/integration events;
-- workflow progression;
-- side effects;
-- retryable background work;
-- decoupling independently scalable consumers.
+Reliability controls:
 
----
-
-## Consistency model
-
-Within one service/database transaction:
-
-- ACID consistency.
-
-Across services:
-
-- eventual consistency;
-- Saga orchestration for critical multi-step dispatch workflows;
-- compensating operations instead of distributed database transactions.
-
-### Delivery guarantees
-
-RabbitMQ consumers are designed for **at-least-once delivery**.
-
-Phase 3 implements the required controls:
-
-- idempotent business handlers;
+- Transactional Outbox;
 - Consumer Inbox;
-- Transactional Outbox for reliable publication;
-- event IDs and correlation IDs;
-- bounded retries and DLQs.
+- event IDs + correlation IDs;
+- idempotent handlers;
+- bounded retries;
+- dead-letter queues.
 
----
+## Dispatch consistency model
 
-## Concurrency strategy
+```mermaid
+sequenceDiagram
+  participant O as Order
+  participant Q as RabbitMQ
+  participant D as Dispatch
+  participant R as Driver
 
-Driver assignment explicitly addresses both capacity races and duplicate-event races.
-
-Implemented controls:
-
-1. PostgreSQL row-level write locking for driver capacity;
-2. `SKIP LOCKED` candidate selection for concurrent workers;
-3. transaction-scoped advisory locking per `orderId`;
-4. unique active reservation ownership in `driver_reservations`;
-5. idempotency keys for order creation;
-6. Inbox/event IDs for message deduplication.
-
-No design may rely solely on "requests usually arrive one at a time".
-
----
-
-## Geospatial strategy
-
-Future driver candidate discovery:
-
-- Redis GEO for low-latency, ephemeral current-location candidate lookup;
-- PostGIS for authoritative geospatial queries and durable spatial data;
-- Routing Service abstracts external ETA/directions providers.
-
----
-
-## Observability strategy
-
-Phase 1 starts with a correlation ID propagated across the synchronous call.
-
-Later phases add:
-
-- OpenTelemetry trace context;
-- structured JSON logging;
-- service metrics;
-- queue depth metrics;
-- business metrics;
-- Prometheus/Grafana;
-- Jaeger;
-- CloudWatch in AWS.
-
-A delivery must eventually be traceable end-to-end by `correlationId`, `orderId`, `dispatchId`, and `deliveryId`.
-
----
-
-## Deployment strategy
-
-Each application under `apps/` must remain independently deployable.
-
-Target deployment progression:
-
-1. local Node processes + Docker PostgreSQL;
-2. Docker containers;
-3. complete Docker Compose environment;
-4. Kubernetes with health probes and HPA;
-5. AWS deployment and CloudWatch integration.
-
-
-
----
-
-## Current deployment topology — Phase 3
-
-```text
-API Gateway :3000
-  ├── HTTP -> Order Service :3001 -> Order PostgreSQL :55432
-  ├── HTTP -> Driver Service :3002 -> Driver PostgreSQL :55433
-  └── HTTP -> Dispatch Service :3003 -> Dispatch PostgreSQL :55434
-
-Order / Driver / Dispatch
-       ↕
-RabbitMQ :5672
-Management :15672
-Redis / BullMQ :6379
+  O->>Q: order.ready_for_dispatch
+  Q->>D: start dispatch
+  D->>Q: driver.reservation_requested
+  Q->>R: reserve ranked candidate
+  R->>R: order advisory lock + row lock
+  R->>Q: driver.reserved
+  Q->>D: assigned
+  D->>Q: dispatch.assigned
+  Q->>O: order assigned
 ```
 
-### Queue ownership
+Across contexts the system is eventually consistent. A failed workflow is repaired with compensating events rather than distributed transactions.
 
-- `routefast.order.events` is consumed only by Order Service.
-- `routefast.driver.events` is consumed only by Driver Service.
-- `routefast.dispatch.events` is consumed only by Dispatch Service.
+## Concurrency model
 
-Producers target a service queue using an explicit versioned event pattern. The current topology intentionally keeps explicit service-owned queues. Fan-out choreography for notifications, audit and analytics is introduced when those consumers exist.
+Driver Service protects two independent races:
 
-### Consistency semantics
+1. several orders competing for one driver's capacity;
+2. duplicated concurrent reservation events for one order selecting different drivers.
 
-Phase 3 uses eventual consistency across Order, Dispatch and Driver. No distributed transaction spans service databases. Integration-event intent is now committed through each service Transactional Outbox; Consumer Inbox and idempotent state transitions tolerate at-least-once delivery.
+Controls include `FOR UPDATE` / `SKIP LOCKED`, transaction-scoped advisory locking by `orderId`, capacity validation, unique reservation ownership, API idempotency and Inbox deduplication.
 
-
----
-
-# Phase 3 Reliability Architecture
-
-## Local transaction boundary
-
-Each service commits its own business state and integration-event intent to the same PostgreSQL database transaction. Cross-service publication is asynchronous through the Outbox worker.
+## Tracking model
 
 ```text
-Application command
-      ↓
-PostgreSQL transaction
-  ├── domain state
-  └── outbox_events
-      ↓ COMMIT
-Outbox worker
-      ↓
-RabbitMQ
+GPS → Tracking → Redis GEO → immediate live state
+              ├→ Socket.IO → clients
+              └→ BullMQ → PostGIS → durable history
 ```
 
-This preserves database ownership: no service participates in another service's transaction.
+An out-of-order GPS event may be stored in history but cannot overwrite a newer current position in Redis.
 
-## Event delivery semantics
+## Decisioning
 
-RouteFast is **at least once**. All Phase 3 integration events contain an `eventId`. Consumers persist processed IDs in `inbox_events` and business handlers are designed to tolerate duplicate state transitions.
+Dispatch combines nearby location data with authoritative Driver capacity data. `geo-score-v1` ranks candidates by distance, remaining capacity, current load and GPS freshness. Driver Service still performs the final transactional reservation validation.
 
-## Driver concurrency
+The multi-order `paired-insertion-v1` planner is a bounded heuristic with pickup-before-dropoff and capacity invariants. It is not presented as an optimal VRP solver.
 
-The Driver database is the capacity source of truth. Reservation candidate selection occurs under a PostgreSQL write lock. `SKIP LOCKED` allows horizontally scaled workers to avoid concurrently mutating the same candidate row.
+## Failure containment
 
-## Temporal orchestration
+- RabbitMQ retry + DLQ for asynchronous failures.
+- BullMQ delayed assignment timeout.
+- Saga compensation for release/cancellation.
+- Circuit breaker for synchronous Driver/Tracking dependencies.
+- Liveness/readiness separation for orchestration platforms.
 
-RabbitMQ remains the cross-service event backbone. BullMQ/Redis is introduced only for delayed internal work, initially assignment expiration.
+## Observability
+
+All applications expose structured JSON logs and Prometheus metrics and initialize OpenTelemetry tracing.
 
 ```text
-Dispatch started
-    ├── RabbitMQ → Driver reservation
-    └── BullMQ delayed timeout
-                 ↓
-          if still SEARCHING_DRIVER
-                 ↓
-             FAILED
+NestJS → OTLP → OpenTelemetry Collector → Jaeger
+NestJS / RabbitMQ → Prometheus → Grafana
+Logs → stdout/container pipeline
 ```
 
-## Saga compensation
+Operational correlation uses both `correlationId` and OpenTelemetry `traceId`.
 
-Dispatch Service owns the critical workflow. Cancelling an already assigned dispatch is not a distributed rollback; it is an explicit forward-moving compensation:
+## Deployment model
 
-```text
-ASSIGNED
-   ↓
-COMPENSATING
-   ↓ driver.release_requested.v1
-Driver releases capacity
-   ↓ driver.released.v1
-CANCELLED
-   ↓ dispatch.cancelled.v1
-Order CANCELLED
-```
+- one monorepo;
+- five independent application images;
+- stateless application workloads on Kubernetes;
+- HPA in the portable base;
+- optional KEDA overlay for RabbitMQ backlog-driven scaling;
+- PostgreSQL/PostGIS, RabbitMQ and Redis treated as external stateful dependencies in the cloud target.
 
-This makes intermediate failure states observable and recoverable.
+AWS blueprint: EKS + ALB, RDS/PostGIS, Amazon MQ RabbitMQ, ElastiCache Redis and ADOT to CloudWatch/X-Ray.
+
+## Engineering boundary
+
+The architecture is intentionally considered feature-complete for the portfolio objective. Further changes require evidence from reliability, stress testing or product requirements. See [progressive stress methodology](./docs/performance/STRESS_TEST.md) and the [ADR index](./docs/adr/README.md).

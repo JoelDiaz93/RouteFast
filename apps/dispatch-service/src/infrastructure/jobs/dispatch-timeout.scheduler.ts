@@ -15,6 +15,8 @@ export class DispatchTimeoutScheduler implements OnModuleDestroy {
       connection: {
         host: config.get<string>('REDIS_HOST', 'localhost'),
         port: Number(config.get<string>('REDIS_PORT', '6379')),
+        password: config.get<string>('REDIS_PASSWORD') || undefined,
+        tls: config.get<string>('REDIS_TLS', 'false') === 'true' ? {} : undefined,
       },
     });
   }

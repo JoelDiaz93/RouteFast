@@ -4,6 +4,7 @@ export interface ReserveDriverInput {
   orderId: string;
   dispatchId: string;
   correlationId: string;
+  candidateDriverIds?: string[];
 }
 
 export interface ReleaseDriverInput extends ReserveDriverInput {

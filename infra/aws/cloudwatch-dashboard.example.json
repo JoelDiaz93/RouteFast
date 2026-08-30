@@ -1,0 +1,48 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "ALB 5xx responses",
+        "region": "${AWS_REGION}",
+        "stat": "Sum",
+        "period": 60,
+        "metrics": [["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", "${ALB_DIMENSION}"]]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 0, "width": 12, "height": 6,
+      "properties": {
+        "title": "EKS pod CPU",
+        "region": "${AWS_REGION}",
+        "stat": "Average",
+        "period": 60,
+        "metrics": [["ContainerInsights", "pod_cpu_utilization", "ClusterName", "${EKS_CLUSTER}", "Namespace", "routefast"]]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "RabbitMQ messages ready",
+        "region": "${AWS_REGION}",
+        "stat": "Maximum",
+        "period": 60,
+        "metrics": [["AWS/AmazonMQ", "MessageCount", "Broker", "${MQ_BROKER}"]]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12, "y": 6, "width": 12, "height": 6,
+      "properties": {
+        "title": "RDS connections",
+        "region": "${AWS_REGION}",
+        "stat": "Average",
+        "period": 60,
+        "metrics": [["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", "${RDS_INSTANCE}"]]
+      }
+    }
+  ]
+}

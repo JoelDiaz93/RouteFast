@@ -1,0 +1,10 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: routefast-rabbitmq-auth
+  namespace: routefast
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: routefast-secrets
+      key: RABBITMQ_URL

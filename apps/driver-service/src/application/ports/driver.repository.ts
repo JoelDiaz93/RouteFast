@@ -7,4 +7,5 @@ export interface DriverRepository {
   findById(driverId: string): Promise<Driver | null>;
   findAll(): Promise<Driver[]>;
   findFirstAvailable(): Promise<Driver | null>;
+  findAvailableCandidates(limit: number): Promise<Driver[]>;
 }

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import {
+  DispatchStartPlan,
   DispatchWorkflowTransaction,
   ReservationResultInput,
 } from '../../../application/ports/dispatch-workflow.transaction';
@@ -10,6 +11,7 @@ import { Dispatch } from '../../../domain/entities/dispatch.aggregate';
 import { DispatchStatus } from '../../../domain/entities/dispatch-status.enum';
 import { OutboxOrmEntity, OutboxStatus } from '../../reliability/outbox.orm-entity';
 import { DispatchMapper } from './dispatch.mapper';
+import { DispatchDecisionOrmEntity } from './dispatch-decision.orm-entity';
 import { DispatchOrmEntity } from './dispatch.orm-entity';
 
 @Injectable()
@@ -22,12 +24,25 @@ export class TypeOrmDispatchWorkflowTransaction implements DispatchWorkflowTrans
     this.driverQueue = config.get<string>('DRIVER_EVENTS_QUEUE', 'routefast.driver.events');
   }
 
-  async start(dispatch: Dispatch): Promise<void> {
+  async start(dispatch: Dispatch, plan?: DispatchStartPlan): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const dispatches = manager.getRepository(DispatchOrmEntity);
       const existing = await dispatches.findOne({ where: { orderId: dispatch.orderId } });
       if (existing) return;
       await dispatches.save(DispatchMapper.toPersistence(dispatch));
+      if (plan) {
+        await manager.getRepository(DispatchDecisionOrmEntity).save({
+          id: randomUUID(),
+          dispatchId: dispatch.id,
+          strategyVersion: plan.strategyVersion,
+          priority: plan.priority,
+          searchRadiusKm: plan.searchRadiusKm,
+          pickupLatitude: plan.pickup.latitude,
+          pickupLongitude: plan.pickup.longitude,
+          rankedCandidates: plan.rankedCandidates,
+          selectedCandidateId: plan.rankedCandidates[0]?.driverId ?? null,
+        });
+      }
       await this.enqueue(manager, this.orderQueue, 'dispatch.started.v1', {
         dispatchId: dispatch.id,
         orderId: dispatch.orderId,
@@ -37,6 +52,8 @@ export class TypeOrmDispatchWorkflowTransaction implements DispatchWorkflowTrans
         dispatchId: dispatch.id,
         orderId: dispatch.orderId,
         correlationId: dispatch.correlationId,
+        candidateDriverIds: plan ? plan.rankedCandidates.map((candidate) => candidate.driverId) : undefined,
+        selectionStrategy: plan?.strategyVersion ?? 'capacity-fallback-v1',
       }, dispatch.correlationId);
     });
   }

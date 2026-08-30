@@ -42,15 +42,42 @@ export class TypeOrmDriverReservationTransaction implements DriverReservationTra
       }
 
       const drivers = manager.getRepository(DriverOrmEntity);
-      const entity = await drivers
-        .createQueryBuilder('driver')
-        .setLock('pessimistic_write')
-        .setOnLocked('skip_locked')
-        .where('driver.status = :status', { status: DriverStatus.AVAILABLE })
-        .andWhere('jsonb_array_length(driver.reserved_order_ids) < driver.capacity')
-        .orderBy('jsonb_array_length(driver.reserved_order_ids)', 'ASC')
-        .addOrderBy('driver.created_at', 'ASC')
-        .getOne();
+      let entity: DriverOrmEntity | null = null;
+
+      // Phase 4: Dispatch can provide a score-ranked candidate list. We preserve
+      // that order while still locking capacity in the Driver bounded context.
+      if (input.candidateDriverIds !== undefined) {
+        if (input.candidateDriverIds.length === 0) {
+          await this.enqueue(
+            manager,
+            'driver.reservation_failed.v1',
+            { ...input, reason: 'NO_GEO_ELIGIBLE_DRIVER' },
+            input.correlationId,
+          );
+          return;
+        }
+        for (const candidateDriverId of input.candidateDriverIds) {
+          entity = await drivers
+            .createQueryBuilder('driver')
+            .setLock('pessimistic_write')
+            .setOnLocked('skip_locked')
+            .where('driver.id = :driverId', { driverId: candidateDriverId })
+            .andWhere('driver.status = :status', { status: DriverStatus.AVAILABLE })
+            .andWhere('jsonb_array_length(driver.reserved_order_ids) < driver.capacity')
+            .getOne();
+          if (entity) break;
+        }
+      } else {
+        entity = await drivers
+          .createQueryBuilder('driver')
+          .setLock('pessimistic_write')
+          .setOnLocked('skip_locked')
+          .where('driver.status = :status', { status: DriverStatus.AVAILABLE })
+          .andWhere('jsonb_array_length(driver.reserved_order_ids) < driver.capacity')
+          .orderBy('jsonb_array_length(driver.reserved_order_ids)', 'ASC')
+          .addOrderBy('driver.created_at', 'ASC')
+          .getOne();
+      }
 
       if (!entity) {
         await this.enqueue(

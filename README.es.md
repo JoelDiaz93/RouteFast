@@ -4,157 +4,112 @@
 
 > Decisiones rápidas. Entregas confiables.
 
-RouteFast es un proyecto de ingeniería backend diseñado para demostrar los problemas difíciles de logística de última milla: límites de dominio, microservicios, colas, orquestación, concurrencia, consistencia eventual, resiliencia y operación distribuida.
+RouteFast es un caso de estudio de ingeniería backend centrado en los problemas difíciles de logística de última milla: **correctitud de workflows distribuidos, asignación concurrente de conductores, mensajería confiable, tracking geoespacial en tiempo real, contención de fallos y operabilidad medible**.
 
-## Estado actual — Fase 3: Reliability & Concurrency ✅
+No es un CRUD de entregas. La pregunta central es:
 
-La Fase 3 transforma el workflow distribuido de la Fase 2 en un sistema preparado para duplicados, fallos parciales y carreras concurrentes.
+> ¿Cómo mantener correctos pedidos, conductores, asignaciones y eventos GPS cuando existen mensajes duplicados, fallos parciales y concurrencia real?
 
-```text
-Order Service
-  ├── estado de negocio
-  └── Outbox ─────────────┐
-                          ▼
-                       RabbitMQ
-                          ↓
-                    Dispatch Service
-                    ├── Inbox / Outbox
-                    ├── Saga
-                    └── BullMQ → Redis
-                          ↓
-                       RabbitMQ
-                          ↓
-                     Driver Service
-                     ├── Inbox / Outbox
-                     └── reserva con lock PostgreSQL
+## Evidencia medida
+
+| Área | Evidencia |
+|---|---|
+| Calidad | 10 suites Jest / **27 tests**; TypeScript estricto; build de 5 aplicaciones NestJS |
+| Seguridad | `npm audit --omit=dev` → **0 vulnerabilidades de producción reportadas** |
+| Smoke | p95 **45.27 ms**, p99 **73.88 ms**, 0% errores |
+| Idempotencia | p95 **118.36 ms**, consistencia de duplicados **100%** |
+| Carga mixta | **~38 iter/s**, 0% errores, 0 iteraciones descartadas |
+| Orders p95 | **66.29 ms** |
+| Tracking p95 | **17.65 ms** |
+
+Son benchmarks **locales documentados**, no una afirmación de capacidad máxima de producción. Ver [baseline de performance](./docs/performance/BASELINE_v0.6.5.md) y [baseline de seguridad](./docs/security/SECURITY_BASELINE_v0.6.4.md).
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+  Client[Cliente / Operaciones] --> GW[API Gateway]
+  GW --> Order[Order Service]
+  GW --> Driver[Driver Service]
+  GW --> Dispatch[Dispatch Service]
+  GW --> Tracking[Tracking Service]
+  Order <--> RMQ[(RabbitMQ)]
+  Driver <--> RMQ
+  Dispatch <--> RMQ
+  Order --> ODB[(PostgreSQL)]
+  Driver --> DDB[(PostgreSQL)]
+  Dispatch --> XDB[(PostgreSQL)]
+  Tracking --> PGIS[(PostGIS)]
+  Tracking --> Redis[(Redis GEO)]
+  Tracking --> WS[Socket.IO]
+  Dispatch --> Driver
+  Dispatch --> Tracking
 ```
 
-### Implementado
+Regla de ownership: Order controla el estado del pedido; Driver controla capacidad y reservas; Dispatch controla la política de asignación; Tracking controla ubicación. Ningún servicio lee las tablas internas de otro.
 
-- Transactional Outbox en Order, Driver y Dispatch;
-- Consumer Inbox y `eventId` para deduplicación;
-- `Idempotency-Key` en creación de órdenes;
-- retries limitados en RabbitMQ;
-- Dead Letter Queue por cola principal;
-- reserva concurrente de conductores mediante locks de PostgreSQL;
-- BullMQ + Redis para expiración diferida del assignment;
-- Saga de compensación;
-- compensación de reservas tardías después de timeout;
-- estados `COMPENSATING` y `CANCELLED` en Dispatch;
-- endpoint operacional de cancelación.
+## Decisiones principales
 
-### Consistencia
+- Transactional Outbox + Consumer Inbox para mensajería at-least-once confiable.
+- Idempotency Keys + locks PostgreSQL para duplicados y carreras concurrentes.
+- Saga y operaciones compensatorias en lugar de transacciones distribuidas.
+- Retry limitado + DLQ en RabbitMQ.
+- Redis GEO para ubicación caliente y PostGIS para historial espacial durable.
+- Protección ante GPS fuera de orden.
+- Circuit Breaker en dependencias síncronas de Dispatch.
+- OpenTelemetry, Prometheus/Grafana y Jaeger para diagnóstico.
+- HPA + overlay KEDA para autoscaling.
+- Heurística paired-insertion explícitamente acotada para multiorden.
 
-RouteFast utiliza **at-least-once delivery**. No se afirma "exactly once".
+Ver el [índice de ADR](./docs/adr/README.md).
 
-```text
-Cambio de negocio + Outbox
-       ↓ misma transacción PostgreSQL
-Outbox Worker
-       ↓
-RabbitMQ
-       ↓
-Inbox + operación idempotente
-```
+## Ejecución local
 
-Esto elimina el problema principal de Fase 2 donde podía ocurrir:
-
-```text
-DB COMMIT ✓
-RabbitMQ ✕
-```
-
-### Concurrencia
-
-La regla principal es:
-
-```text
-reservas del conductor <= capacidad
-```
-
-Driver Service selecciona y reserva dentro de una transacción con row locking. Dos workers concurrentes no pueden modificar simultáneamente la misma capacidad.
-
-### Compensación Saga
-
-```text
-Dispatch ASSIGNED
-     ↓ cancelación
-COMPENSATING
-     ↓
-release driver
-     ↓
-Driver released
-     ↓
-Dispatch CANCELLED
-     ↓
-Order CANCELLED
-```
-
-También se libera automáticamente una reserva que llegue tarde después de un timeout del workflow.
-
-### Retry / DLQ
-
-```text
-main queue → fallo → retry queue → main queue
-                                  ↓ retries agotados
-                                 DLQ
-```
-
-La Fase 4 se concentrará en la complejidad específicamente logística: **PostGIS, Redis GEO, tracking, WebSockets, scoring de conductores y SLA**.
-
-## Ejecutar localmente
-
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 npm install
-docker compose up -d
+npm run typecheck
+npm test
+npm run build
+
+docker compose --profile observability up -d
+npm run start:all:no-build
 ```
 
-RabbitMQ Management:
+En otra terminal:
 
-```text
-http://localhost:15672
-routefast / routefast
+```powershell
+npm run load:preflight
+npm run load:smoke
+npm run load:idempotency
+npm run load:mixed
 ```
 
-Terminales:
+Para buscar el punto de saturación de forma progresiva:
 
-```bash
-npm run start:order
-npm run start:driver
-npm run start:dispatch
-npm run start:gateway
+```powershell
+npm run load:stress
 ```
 
-Después utiliza [`routefast.http`](./routefast.http).
+El perfil escala aproximadamente `50/s → 100/s → 200/s → 400/s`. La metodología completa está en [STRESS_TEST.md](./docs/performance/STRESS_TEST.md).
 
-## Endpoints
+## Regla de optimización
 
-```text
-POST  /api/v1/orders
-GET   /api/v1/orders
-GET   /api/v1/orders/:id
-PATCH /api/v1/orders/:id/cancel
+No se cambia código por intuición. Si stress/k6 muestra una señal de saturación, se localiza el componente con Grafana/Jaeger, se hace **una sola optimización dirigida** y se repite exactamente el mismo benchmark.
 
-POST  /api/v1/drivers
-GET   /api/v1/drivers
-PATCH /api/v1/drivers/:id/availability
+## Documentación clave
 
-GET   /api/v1/dispatches
-GET   /api/v1/dispatches/:id
-POST  /api/v1/dispatches/:id/cancel
-```
+- [Arquitectura](./ARCHITECTURE.md)
+- [Caso de estudio](./docs/portfolio/CASE_STUDY.md)
+- [Guía para entrevista](./docs/portfolio/INTERVIEW_GUIDE.md)
+- [Performance baseline](./docs/performance/BASELINE_v0.6.5.md)
+- [Security baseline](./docs/security/SECURITY_BASELINE_v0.6.4.md)
+- [ADR index](./docs/adr/README.md)
+- [Checklist de evidencias](./docs/evidence/SCREENSHOT_CHECKLIST.md)
 
-## Documentación relevante
+RouteFast está en modo **hardening basado en evidencia**: no se añaden patrones o microservicios nuevos sin un requisito de producto, confiabilidad o performance medido.
 
-- [`PROJECT_SCOPE.md`](./PROJECT_SCOPE.md)
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-- [`ROADMAP.md`](./ROADMAP.md)
-- [`PHASE_3_SUMMARY.md`](./PHASE_3_SUMMARY.md)
-- [`PHASE_2_SUMMARY.md`](./PHASE_2_SUMMARY.md)
-- [`docs/phase-3/reliability-flow.md`](./docs/phase-3/reliability-flow.md)
-- [`docs/phase-3/concurrency.md`](./docs/phase-3/concurrency.md)
-- [`docs/phase-3/event-catalog.md`](./docs/phase-3/event-catalog.md)
-- [`docs/phase-2/event-catalog.md`](./docs/phase-2/event-catalog.md)
-- [`docs/phase-2/sequence.md`](./docs/phase-2/sequence.md)
-- [`docs/adr`](./docs/adr)
+
+## Progressive stress evidence
+
+The first saturation run is recorded in [`docs/performance/STRESS_BASELINE_v0.6.6.md`](docs/performance/STRESS_BASELINE_v0.6.6.md). The first explicit saturation signal appeared after entering the ~200 operations/s target level. v0.6.9 preserves the single controlled hot-path optimization—successful-request access-log sampling—and hardens the Windows benchmark launcher while keeping the same concurrently-based five-service runtime for a valid before/after comparison.

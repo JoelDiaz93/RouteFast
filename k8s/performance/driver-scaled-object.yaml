@@ -1,0 +1,22 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: driver-service
+  namespace: routefast
+spec:
+  scaleTargetRef:
+    name: driver-service
+  minReplicaCount: 2
+  maxReplicaCount: 12
+  pollingInterval: 15
+  cooldownPeriod: 180
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: routefast.driver.events
+        mode: QueueLength
+        value: "20"
+        activationValue: "2"
+      authenticationRef:
+        name: routefast-rabbitmq-auth

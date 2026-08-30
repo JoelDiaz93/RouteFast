@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DRIVER_RESERVATION_TRANSACTION, DriverReservationTransaction } from './application/ports/driver-reservation.transaction';
 import { DRIVER_REPOSITORY, DriverRepository } from './application/ports/driver.repository';
 import { CreateDriverUseCase } from './application/use-cases/create-driver.use-case';
+import { ListDriverCandidatesUseCase } from './application/use-cases/list-driver-candidates.use-case';
 import { ListDriversUseCase } from './application/use-cases/list-drivers.use-case';
 import { ReleaseDriverReservationUseCase } from './application/use-cases/release-driver-reservation.use-case';
 import { ReserveDriverUseCase } from './application/use-cases/reserve-driver.use-case';
@@ -22,9 +23,11 @@ import { TypeOrmDriverReservationTransaction } from './infrastructure/persistenc
 import { DriverEventsController } from './interfaces/events/driver-events.controller';
 import { DriversController } from './interfaces/http/drivers.controller';
 
+import { MetricsModule } from './observability/metrics.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    MetricsModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -34,6 +37,7 @@ import { DriversController } from './interfaces/http/drivers.controller';
         username: config.get<string>('DRIVER_DB_USER', 'routefast'),
         password: config.get<string>('DRIVER_DB_PASSWORD', 'routefast'),
         database: config.get<string>('DRIVER_DB_NAME', 'routefast_drivers'),
+        ssl: config.get<string>('DRIVER_DB_SSL', 'false') === 'true',
         entities: [DriverOrmEntity, DriverReservationOrmEntity, OutboxOrmEntity, InboxOrmEntity],
         synchronize: config.get<string>('DRIVER_DB_SYNC', 'false') === 'true',
       }),
@@ -60,6 +64,11 @@ import { DriversController } from './interfaces/http/drivers.controller';
       provide: ListDriversUseCase,
       inject: [DRIVER_REPOSITORY],
       useFactory: (repository: DriverRepository) => new ListDriversUseCase(repository),
+    },
+    {
+      provide: ListDriverCandidatesUseCase,
+      inject: [DRIVER_REPOSITORY],
+      useFactory: (repository: DriverRepository) => new ListDriverCandidatesUseCase(repository),
     },
     {
       provide: SetDriverAvailabilityUseCase,

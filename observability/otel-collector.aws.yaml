@@ -1,0 +1,50 @@
+# Template for AWS Distro for OpenTelemetry (ADOT) in EKS.
+# IAM permissions are required for X-Ray and CloudWatch EMF exporters.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: routefast-gateway
+          metrics_path: /api/v1/metrics
+          static_configs:
+            - targets: ['api-gateway.routefast.svc.cluster.local:3000']
+        - job_name: routefast-services
+          static_configs:
+            - targets:
+                - order-service.routefast.svc.cluster.local:3001
+                - driver-service.routefast.svc.cluster.local:3002
+                - dispatch-service.routefast.svc.cluster.local:3003
+                - tracking-service.routefast.svc.cluster.local:3004
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+  batch:
+    timeout: 5s
+
+exporters:
+  awsxray:
+    region: ${env:AWS_REGION}
+  awsemf:
+    region: ${env:AWS_REGION}
+    namespace: RouteFast
+    log_group_name: /routefast/metrics
+    log_stream_name: adot
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [awsxray]
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, batch]
+      exporters: [awsemf]

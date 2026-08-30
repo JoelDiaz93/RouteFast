@@ -20,6 +20,11 @@ export class DispatchController {
     return this.forward(() => this.client.get(id, this.correlationId(req)));
   }
 
+  @Get(':dispatchId/decision')
+  decision(@Param('dispatchId') id: string, @Req() req: Request): Promise<unknown> {
+    return this.forward(() => this.client.decision(id, this.correlationId(req)));
+  }
+
   @Post(':dispatchId/cancel')
   cancel(
     @Param('dispatchId') id: string,

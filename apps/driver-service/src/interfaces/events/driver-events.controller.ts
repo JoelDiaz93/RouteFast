@@ -9,6 +9,7 @@ interface ReservationRequestedEvent {
   orderId: string;
   dispatchId: string;
   correlationId: string;
+  candidateDriverIds?: string[];
 }
 
 interface ReleaseRequestedEvent extends ReservationRequestedEvent {

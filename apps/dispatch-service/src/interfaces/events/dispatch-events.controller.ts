@@ -10,6 +10,8 @@ interface OrderReadyEvent {
   eventId: string;
   orderId: string;
   correlationId: string;
+  priority?: string;
+  pickup?: { latitude: number; longitude: number };
 }
 interface DriverReservedEvent {
   eventId: string;
@@ -39,7 +41,7 @@ export class DispatchEventsController {
   @EventPattern('order.ready_for_dispatch.v1')
   orderReady(@Payload() event: OrderReadyEvent, @Ctx() context: RmqContext): Promise<void> {
     return this.reliability.handle(this.queue, 'order.ready_for_dispatch.v1', event, context, () =>
-      this.commandBus.execute(new StartDispatchCommand(event.orderId, event.correlationId)),
+      this.commandBus.execute(new StartDispatchCommand(event.orderId, event.correlationId, event.priority ?? 'STANDARD', event.pickup ?? null)),
     );
   }
 

@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - trigger-authentication.yaml
+  - order-scaled-object.yaml
+  - driver-scaled-object.yaml
+  - dispatch-scaled-object.yaml
+patches:
+  - path: delete-order-hpa.yaml
+  - path: delete-driver-hpa.yaml
+  - path: delete-dispatch-hpa.yaml

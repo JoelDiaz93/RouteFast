@@ -25,6 +25,19 @@ export class TypeOrmDriverRepository implements DriverRepository {
     return entities.map(DriverMapper.toDomain);
   }
 
+  async findAvailableCandidates(limit: number): Promise<Driver[]> {
+    const entities = await this.repository
+      .createQueryBuilder('driver')
+      .where('driver.status = :status', { status: DriverStatus.AVAILABLE })
+      .andWhere('jsonb_array_length(driver.reserved_order_ids) < driver.capacity')
+      .orderBy('(jsonb_array_length(driver.reserved_order_ids)::float / driver.capacity)', 'ASC')
+      .addOrderBy('driver.capacity', 'DESC')
+      .addOrderBy('driver.created_at', 'ASC')
+      .limit(limit)
+      .getMany();
+    return entities.map(DriverMapper.toDomain);
+  }
+
   async findFirstAvailable(): Promise<Driver | null> {
     const entities = await this.repository.find({
       where: { status: DriverStatus.AVAILABLE },

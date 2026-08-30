@@ -6,3 +6,11 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+k8s/base/secret.yaml
+
+profiles/
+*.cpuprofile
+*.heapprofile
+
+# Local raw performance output; curated Markdown reports may be committed.
+performance/results/*.json
