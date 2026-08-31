@@ -20,8 +20,8 @@ export class TypeOrmDriverRepository implements DriverRepository {
     return entity ? DriverMapper.toDomain(entity) : null;
   }
 
-  async findAll(): Promise<Driver[]> {
-    const entities = await this.repository.find({ order: { createdAt: 'DESC' } });
+  async findAll(limit = 100): Promise<Driver[]> {
+    const entities = await this.repository.find({ order: { createdAt: 'DESC' }, take: Math.min(Math.max(limit, 1), 500) });
     return entities.map(DriverMapper.toDomain);
   }
 

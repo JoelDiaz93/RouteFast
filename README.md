@@ -4,7 +4,7 @@
 
 > Fast decisions. Reliable deliveries.
 
-RouteFast is a backend engineering case study built around the difficult parts of last-mile logistics: **distributed workflow correctness, concurrent driver assignment, reliable messaging, real-time geospatial tracking, failure containment and measurable operability**.
+RouteFast is a backend-first engineering case study built around the difficult parts of last-mile logistics: **distributed workflow correctness, concurrent driver assignment, reliable messaging, real-time geospatial tracking, failure containment and measurable operability**.
 
 It is intentionally not a delivery CRUD demo. The project asks a harder question:
 
@@ -21,6 +21,8 @@ It is intentionally not a delivery CRUD demo. The project asks a harder question
 | Mixed baseline | **~38 iter/s**, 0% errors, 0 dropped iterations |
 | Mixed Orders | p95 **66.29 ms** |
 | Mixed Tracking | p95 **17.65 ms** |
+| Progressive stress | sustained ~200 ops/s stage; saturation begins while scaling toward ~300–400 ops/s; **0% HTTP failures** in post-sampling run |
+| Browser validation | React Operations Console exercises public HTTP + Socket.IO contracts, bilingual ES/EN UX, OpenStreetMap tracking and a guided distributed E2E workflow |
 
 These are **local measured baselines**, not production capacity claims. See [performance evidence](./docs/performance/BASELINE_v0.6.5.md) and [security evidence](./docs/security/SECURITY_BASELINE_v0.6.4.md).
 
@@ -28,7 +30,9 @@ These are **local measured baselines**, not production capacity claims. See [per
 
 ```mermaid
 flowchart LR
-  Client[Client / Operations] --> GW[API Gateway]
+  Console[React Operations Console] --> GW[API Gateway]
+  Console -->|Socket.IO tracking| Tracking
+  Client[Other clients / Operations] --> GW[API Gateway]
   GW --> Order[Order Service]
   GW --> Driver[Driver Service]
   GW --> Dispatch[Dispatch Service]
@@ -75,7 +79,7 @@ The rationale is recorded in the [ADR index](./docs/adr/README.md).
 
 ## Technology
 
-`NestJS` · `TypeScript` · `PostgreSQL` · `PostGIS` · `RabbitMQ` · `Redis` · `BullMQ` · `Socket.IO` · `OpenTelemetry` · `Prometheus` · `Grafana` · `Jaeger` · `Docker` · `Kubernetes` · `KEDA` · `GitHub Actions` · `AWS blueprint` · `k6`
+`NestJS` · `TypeScript` · `React` · `Vite` · `Leaflet/OpenStreetMap` · `PostgreSQL` · `PostGIS` · `RabbitMQ` · `Redis` · `BullMQ` · `Socket.IO` · `OpenTelemetry` · `Prometheus` · `Grafana` · `Jaeger` · `Docker` · `Kubernetes` · `KEDA` · `GitHub Actions` · `AWS blueprint` · `k6`
 
 ## Run locally
 
@@ -92,7 +96,15 @@ docker compose --profile observability up -d
 npm run start:all:no-build
 ```
 
-Keep the application terminal running. In a second terminal:
+Keep the application terminal running. In a second terminal you can start the browser Operations Console:
+
+```powershell
+npm run ops:dev
+```
+
+Open `http://localhost:5173`. The console validates Orders, Drivers, Dispatch, Tracking, ETA, route optimization and a guided asynchronous E2E workflow through public contracts. It includes ES/EN switching, System/Light/Dark themes, bounded operational filters and a Leaflet map for drivers, pickup/dropoff points and backend-planned routes. See [Operations Console](./docs/frontend/OPS_CONSOLE.md). Operational list reads are bounded (`?limit=100` by default) so stress-test history cannot degrade the browser demo.
+
+For load validation, use another terminal:
 
 ```powershell
 npm run load:preflight
@@ -155,7 +167,9 @@ The repository includes:
 - [ADR index](./docs/adr/README.md)
 - [Engineering case study](./docs/portfolio/CASE_STUDY.md)
 - [Interview guide](./docs/portfolio/INTERVIEW_GUIDE.md)
+- [Operations Console](./docs/frontend/OPS_CONSOLE.md)
 - [Performance baseline](./docs/performance/BASELINE_v0.6.5.md)
+- [Stress before/after](./docs/performance/STRESS_AFTER_v0.6.9.md)
 - [Progressive stress test](./docs/performance/STRESS_TEST.md)
 - [Security baseline](./docs/security/SECURITY_BASELINE_v0.6.4.md)
 - [Evidence screenshot checklist](./docs/evidence/SCREENSHOT_CHECKLIST.md)
@@ -163,9 +177,39 @@ The repository includes:
 
 ## Project boundary
 
-RouteFast is now in **evidence-driven hardening mode**. New microservices or patterns are not added by default. Future engineering changes must be justified by a measured reliability, performance or product requirement.
+RouteFast is now in **showcase and evidence mode**. The backend architecture is feature-complete for the portfolio objective; the Operations Console exists to validate and demonstrate those public contracts. New microservices or patterns are not added by default. Future engineering changes must be justified by a measured reliability, performance or product requirement.
 
 
 ## Progressive stress evidence
 
-The first saturation run is recorded in [`docs/performance/STRESS_BASELINE_v0.6.6.md`](docs/performance/STRESS_BASELINE_v0.6.6.md). The first explicit saturation signal appeared after entering the ~200 operations/s target level. v0.6.9 preserves the single controlled hot-path optimization—successful-request access-log sampling—and hardens the Windows benchmark launcher while keeping the same concurrently-based five-service runtime for a valid before/after comparison.
+The first saturation run is recorded in [`docs/performance/STRESS_BASELINE_v0.6.6.md`](docs/performance/STRESS_BASELINE_v0.6.6.md). The controlled rerun is recorded in [`docs/performance/STRESS_AFTER_v0.6.9.md`](docs/performance/STRESS_AFTER_v0.6.9.md): HTTP failures dropped to 0%, completed iterations increased to 33,828, and explicit VU exhaustion moved from the ~200 ops/s stage into the ramp toward ~300–400 ops/s.
+
+
+## Operations Console — unified technical operations UX
+
+RouteFast v0.7.6 removes the Simple/Technical mode switch. The console now exposes one coherent **operations + engineering** experience: all public capabilities remain visible, while each page states its purpose, core operations and primary backend source. API Activity, route optimization, REST/Socket.IO controls, correlation data and scoring evidence are always available without forcing the user to change modes.
+
+See [`PHASE_7_3_GUIDED_OPERATIONS_UX.md`](PHASE_7_3_GUIDED_OPERATIONS_UX.md).
+
+
+## Operations Console — adaptive theme & driver routes
+
+RouteFast v0.7.4 adds **System / Light / Dark** themes, replaces the high-impact white canvas with softer theme-aware surfaces, and fixes the Assignments layout so the scoring detail cannot overflow the viewport. Deliveries, Fleet and Assignments now have bounded filters over the latest operational window.
+
+The Live Map can build a route for a selected driver using the existing backend `route-plan` contract. Backend sequencing remains authoritative; the browser optionally asks OSRM for presentation-only road geometry and falls back to direct segments if the routing service is unavailable. The basemap now uses standard OpenStreetMap tiles without an application API key; Dark mode applies a theme treatment to the same tile layer.
+
+See [`PHASE_7_4_ADAPTIVE_THEME_FILTERS_ROUTE.md`](PHASE_7_4_ADAPTIVE_THEME_FILTERS_ROUTE.md).
+
+
+## Operations Console — route clarity
+
+RouteFast v0.7.5 keeps the **Live Map** as the operational route surface. Selecting a driver on that screen automatically requests a backend route for the driver's active assigned deliveries; the map then shows the ordered stops plus ETA and road distance. OSRM remains presentation-only for road geometry/duration and falls back to RouteFast ETA/direct geometry when unavailable.
+
+The former Route Planner is retained as an **Optimization Lab**. Its purpose is algorithm validation and sequential-vs-optimized comparison, not day-to-day route execution. Live Tracking remains the operational route surface. The sidebar is fixed to the viewport, operational tables use theme-aware headers, and the basemap no longer depends on CARTO API-key tiles.
+
+See [`PHASE_7_5_ROUTE_CLARITY.md`](PHASE_7_5_ROUTE_CLARITY.md).
+
+
+## Operations Console — unified screen responsibilities
+
+RouteFast v0.7.6 removes experience modes and standardizes every screen around three explicit questions: **what is this screen for, what can I do here, and which backend capability owns the data**. The navigation is always Overview, Orders, Drivers, Live Tracking, Dispatch, Optimization Lab and API Activity. Clear operational explanations remain, but technical evidence is never hidden behind a mode switch.

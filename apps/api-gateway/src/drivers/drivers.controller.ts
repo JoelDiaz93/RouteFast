@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, Param, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { CORRELATION_ID_HEADER } from '../middleware/correlation-id.middleware';
 import { CreateDriverDto } from './create-driver.dto';
@@ -9,7 +9,11 @@ type DownstreamError = Error & { status?: number; payload?: object | string };
 export class DriversController {
   constructor(private readonly client: DriversClient) {}
   @Post() create(@Body() body: CreateDriverDto,@Req() req:Request):Promise<unknown>{return this.forward(()=>this.client.create(body,this.correlationId(req)));}
-  @Get() list(@Req() req:Request):Promise<unknown>{return this.forward(()=>this.client.list(this.correlationId(req)));}
+  @Get() list(@Req() req:Request,@Query('limit') rawLimit?:string):Promise<unknown>{
+    const parsed=Number(rawLimit??100);
+    const limit=Number.isInteger(parsed)?Math.min(Math.max(parsed,1),500):100;
+    return this.forward(()=>this.client.list(this.correlationId(req),limit));
+  }
   @Patch(':driverId/availability') availability(@Param('driverId') id:string,@Body() body:SetDriverAvailabilityDto,@Req() req:Request):Promise<unknown>{
     return this.forward(()=>this.client.availability(id,body,this.correlationId(req)));
   }

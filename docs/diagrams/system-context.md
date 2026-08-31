@@ -2,7 +2,9 @@
 
 ```mermaid
 flowchart LR
-  Client[Client / Operations UI] --> GW[API Gateway\nNestJS]
+  Console[React Operations Console] --> GW[API Gateway\nNestJS]
+  Console -->|Socket.IO /tracking| Tracking
+  Client[Other clients] --> GW
   GW --> Order[Order Service]
   GW --> Driver[Driver Service]
   GW --> Dispatch[Dispatch Service]

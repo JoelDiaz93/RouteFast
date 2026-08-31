@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Req,
+  Query,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { CORRELATION_ID_HEADER } from '../middleware/correlation-id.middleware';
@@ -30,8 +31,9 @@ export class OrdersController {
   }
 
   @Get()
-  async list(@Req() req: Request): Promise<unknown> {
-    return this.forward(() => this.ordersClient.list(this.correlationId(req)));
+  async list(@Req() req: Request, @Query('limit') rawLimit?: string): Promise<unknown> {
+    const limit = this.limit(rawLimit);
+    return this.forward(() => this.ordersClient.list(this.correlationId(req), limit));
   }
 
   @Get(':orderId')
@@ -42,6 +44,11 @@ export class OrdersController {
   @Patch(':orderId/cancel')
   async cancel(@Param('orderId') orderId: string, @Req() req: Request): Promise<unknown> {
     return this.forward(() => this.ordersClient.cancel(orderId, this.correlationId(req)));
+  }
+
+  private limit(raw?: string): number {
+    const parsed = Number(raw ?? 100);
+    return Number.isInteger(parsed) ? Math.min(Math.max(parsed, 1), 500) : 100;
   }
 
   private correlationId(req: Request): string {

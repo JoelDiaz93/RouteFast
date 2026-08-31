@@ -12,7 +12,7 @@ export class DispatchClient {
     this.baseUrl = config.get<string>('DISPATCH_SERVICE_URL', 'http://localhost:3003');
   }
 
-  list(correlationId: string): Promise<unknown> { return this.request('get', '/dispatches', correlationId); }
+  list(correlationId: string, limit = 100): Promise<unknown> { return this.request('get', `/dispatches?limit=${limit}`, correlationId); }
   get(id: string, correlationId: string): Promise<unknown> {
     return this.request('get', `/dispatches/${encodeURIComponent(id)}`, correlationId);
   }

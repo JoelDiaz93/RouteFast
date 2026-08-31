@@ -18,6 +18,12 @@
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["apps/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "apps/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "apps/ops-console/**"
+  ]
 }

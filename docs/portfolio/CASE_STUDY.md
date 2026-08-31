@@ -50,3 +50,7 @@ These are documented local measurements, not production capacity claims. See [pe
 ## What this project demonstrates
 
 NestJS/TypeScript, REST, DDD, Clean Architecture, CQRS, RabbitMQ, event-driven workflows, Saga, Outbox/Inbox, idempotency, concurrency control, PostgreSQL/PostGIS, Redis/BullMQ, WebSockets, observability, Docker/Kubernetes, AWS architecture, CI/security gates, load testing and evidence-driven optimization.
+
+## Browser validation — Operations Console
+
+The final showcase layer is intentionally thin: a React/Vite Operations Console exercises the backend through its public contracts. Its guided demo creates a driver, publishes GPS, creates an order and observes the asynchronous dispatch until the scoring decision is available. This makes eventual consistency, correlation IDs, live tracking and compensation inspectable without granting the frontend direct access to persistence or messaging internals.

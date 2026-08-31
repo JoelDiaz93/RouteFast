@@ -13,7 +13,7 @@ export class DriversClient {
     this.baseUrl = config.get<string>('DRIVER_SERVICE_URL', 'http://localhost:3002');
   }
   create(body: CreateDriverDto, correlationId: string): Promise<unknown> { return this.request('post','/drivers',correlationId,body); }
-  list(correlationId: string): Promise<unknown> { return this.request('get','/drivers',correlationId); }
+  list(correlationId: string, limit = 100): Promise<unknown> { return this.request('get',`/drivers?limit=${limit}`,correlationId); }
   availability(driverId: string, body: SetDriverAvailabilityDto, correlationId: string): Promise<unknown> {
     return this.request('patch',`/drivers/${encodeURIComponent(driverId)}/availability`,correlationId,body);
   }

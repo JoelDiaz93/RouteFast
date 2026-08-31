@@ -20,8 +20,8 @@ export class OrdersClient {
     return this.request('post', '/orders', correlationId, body, idempotencyKey);
   }
 
-  async list(correlationId: string): Promise<unknown> {
-    return this.request('get', '/orders', correlationId);
+  async list(correlationId: string, limit = 100): Promise<unknown> {
+    return this.request('get', `/orders?limit=${limit}`, correlationId);
   }
 
   async getById(orderId: string, correlationId: string): Promise<unknown> {

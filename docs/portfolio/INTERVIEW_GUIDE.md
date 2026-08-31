@@ -37,3 +37,7 @@ Start with `correlationId`, find the distributed trace in Jaeger, correlate the 
 ### What would you improve next?
 
 Only after the progressive stress test identifies a saturation point. The next change should be one measured optimization followed by the exact same benchmark. Otherwise the engineering scope is intentionally closed and the focus shifts to product/demo presentation.
+
+## If asked why there is a frontend
+
+> RouteFast remains backend-first. I added a thin Operations Console after the backend was already measured and hardened because I wanted to validate the public contracts from a real client and make the distributed workflow demonstrable. The frontend has no domain authority: it calls the Gateway, subscribes to tracking via Socket.IO and observes eventual consistency. That helps me demonstrate the architecture without turning the project into a generic full-stack CRUD application.

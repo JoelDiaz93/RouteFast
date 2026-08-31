@@ -1,0 +1,6 @@
+{
+  "name": "@routefast/ops-console",
+  "version": "0.7.3",
+  "private": true,
+  "type": "module"
+}

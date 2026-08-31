@@ -4,5 +4,5 @@ export interface DispatchRepository {
   save(dispatch: Dispatch): Promise<void>;
   findById(dispatchId: string): Promise<Dispatch | null>;
   findByOrderId(orderId: string): Promise<Dispatch | null>;
-  findAll(): Promise<Dispatch[]>;
+  findAll(limit?: number): Promise<Dispatch[]>;
 }

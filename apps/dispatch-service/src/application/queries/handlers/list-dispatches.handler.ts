@@ -6,5 +6,5 @@ import { ListDispatchesQuery } from '../list-dispatches.query';
 @QueryHandler(ListDispatchesQuery)
 export class ListDispatchesHandler implements IQueryHandler<ListDispatchesQuery> {
   constructor(@Inject(DISPATCH_REPOSITORY) private readonly repository: DispatchRepository) {}
-  async execute(_: ListDispatchesQuery): Promise<DispatchView[]> { return (await this.repository.findAll()).map(toDispatchView); }
+  async execute(query: ListDispatchesQuery): Promise<DispatchView[]> { return (await this.repository.findAll(query.limit)).map(toDispatchView); }
 }

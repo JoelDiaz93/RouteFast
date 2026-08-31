@@ -1,4 +1,4 @@
-import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { randomUUID } from 'node:crypto';
 import { CancelDispatchCommand } from '../../application/commands/cancel-dispatch.command';
@@ -18,7 +18,11 @@ export class DispatchesController {
   ) {}
 
   @Get()
-  list(): Promise<DispatchView[]> { return this.queryBus.execute(new ListDispatchesQuery()); }
+  list(@Query('limit') rawLimit?: string): Promise<DispatchView[]> {
+    const parsed = Number(rawLimit ?? 100);
+    const limit = Number.isInteger(parsed) ? Math.min(Math.max(parsed, 1), 500) : 100;
+    return this.queryBus.execute(new ListDispatchesQuery(limit));
+  }
 
   @Get(':dispatchId')
   async get(@Param('dispatchId') id: string): Promise<DispatchView> {

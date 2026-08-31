@@ -1,4 +1,4 @@
-import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, Patch, Post } from '@nestjs/common';
+import { Body, ConflictException, Controller, Get, Headers, NotFoundException, Param, Patch, Post, Query } from '@nestjs/common';
 import { OrderNotFoundError } from '../../application/errors/order-not-found.error';
 import { CancelOrderUseCase } from '../../application/use-cases/cancel-order.use-case';
 import { CreateOrderUseCase } from '../../application/use-cases/create-order.use-case';
@@ -23,7 +23,11 @@ export class OrdersController {
   ): Promise<OrderView> {
     return this.createOrder.execute({ ...body, correlationId, idempotencyKey });
   }
-  @Get() list(): Promise<OrderView[]> { return this.listOrders.execute(); }
+  @Get() list(@Query('limit') rawLimit?: string): Promise<OrderView[]> {
+    const parsed = Number(rawLimit ?? 100);
+    const limit = Number.isInteger(parsed) ? Math.min(Math.max(parsed, 1), 500) : 100;
+    return this.listOrders.execute(limit);
+  }
   @Get(':orderId') async getById(@Param('orderId') orderId: string): Promise<OrderView> {
     try { return await this.getOrder.execute(orderId); }
     catch (error) { if (error instanceof OrderNotFoundError) throw new NotFoundException(error.message); throw error; }

@@ -22,8 +22,11 @@ export class TypeOrmOrderRepository implements OrderRepository {
     return entity ? OrderMapper.toDomain(entity) : null;
   }
 
-  async findAll(): Promise<Order[]> {
-    const entities = await this.repository.find({ order: { createdAt: 'DESC' } });
+  async findAll(limit = 100): Promise<Order[]> {
+    const entities = await this.repository.find({
+      order: { createdAt: 'DESC' },
+      take: Math.min(Math.max(limit, 1), 500),
+    });
     return entities.map(OrderMapper.toDomain);
   }
 }

@@ -5,7 +5,7 @@ export const DRIVER_REPOSITORY = Symbol('DRIVER_REPOSITORY');
 export interface DriverRepository {
   save(driver: Driver): Promise<void>;
   findById(driverId: string): Promise<Driver | null>;
-  findAll(): Promise<Driver[]>;
+  findAll(limit?: number): Promise<Driver[]>;
   findFirstAvailable(): Promise<Driver | null>;
   findAvailableCandidates(limit: number): Promise<Driver[]>;
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { CORRELATION_ID_HEADER } from '../middleware/correlation-id.middleware';
 import { DispatchClient } from './dispatch.client';
@@ -11,8 +11,10 @@ export class DispatchController {
   constructor(private readonly client: DispatchClient) {}
 
   @Get()
-  list(@Req() req: Request): Promise<unknown> {
-    return this.forward(() => this.client.list(this.correlationId(req)));
+  list(@Req() req: Request, @Query('limit') rawLimit?: string): Promise<unknown> {
+    const parsed = Number(rawLimit ?? 100);
+    const limit = Number.isInteger(parsed) ? Math.min(Math.max(parsed, 1), 500) : 100;
+    return this.forward(() => this.client.list(this.correlationId(req), limit));
   }
 
   @Get(':dispatchId')

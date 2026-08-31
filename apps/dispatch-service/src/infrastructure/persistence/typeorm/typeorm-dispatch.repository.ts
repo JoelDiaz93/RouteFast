@@ -15,7 +15,10 @@ export class TypeOrmDispatchRepository implements DispatchRepository {
   async findByOrderId(orderId: string): Promise<Dispatch | null> {
     const entity = await this.repository.findOne({ where: { orderId } }); return entity ? DispatchMapper.toDomain(entity) : null;
   }
-  async findAll(): Promise<Dispatch[]> {
-    return (await this.repository.find({ order: { createdAt: 'DESC' } })).map(DispatchMapper.toDomain);
+  async findAll(limit = 100): Promise<Dispatch[]> {
+    return (await this.repository.find({
+      order: { createdAt: 'DESC' },
+      take: Math.min(Math.max(limit, 1), 500),
+    })).map(DispatchMapper.toDomain);
   }
 }

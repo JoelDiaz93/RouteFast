@@ -1,6 +1,6 @@
 {
   "name": "routefast",
-  "version": "0.6.9",
+  "version": "0.7.6",
   "private": true,
   "description": "Distributed Last-Mile Logistics & Delivery Orchestration Platform",
   "license": "UNLICENSED",
@@ -55,7 +55,12 @@
     "load:stress:local": "k6 run --summary-export=performance/results/stress-latest.json performance/k6/stress.js && npm run benchmark:report",
     "benchmark:report": "node scripts/render-k6-summary.mjs performance/results/stress-latest.json performance/results/STRESS_LATEST.md",
     "showcase:check": "node scripts/showcase-check.mjs",
-    "start:all:benchmark": "node scripts/start-benchmark.mjs"
+    "start:all:benchmark": "node scripts/start-benchmark.mjs",
+    "ops:dev": "vite apps/ops-console --config apps/ops-console/vite.config.ts",
+    "ops:typecheck": "tsc -p apps/ops-console/tsconfig.json",
+    "ops:build": "vite build apps/ops-console --config apps/ops-console/vite.config.ts",
+    "ops:preview": "vite preview apps/ops-console --config apps/ops-console/vite.config.ts",
+    "validate:full": "npm run typecheck && npm test && npm run build && npm run ops:typecheck && npm run ops:build && npm run security:audit && npm run showcase:check"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
@@ -84,7 +89,10 @@
     "@opentelemetry/auto-instrumentations-node": "0.79.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.221.0",
     "@opentelemetry/sdk-node": "0.221.0",
-    "prom-client": "15.1.3"
+    "prom-client": "15.1.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "leaflet": "^1.9.4"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.10",
@@ -99,6 +107,11 @@
     "@nestjs/schematics": "^11.0.7",
     "@types/amqplib": "^0.10.7",
     "socket.io-client": "^4.8.1",
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.2",
+    "vite": "^7.1.3",
+    "@types/leaflet": "^1.9.20"
   }
 }

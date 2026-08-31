@@ -1,16 +1,18 @@
 # RouteFast Architecture
 
-## Current architecture — v0.6.6
+## Current architecture — v0.7.2
 
-RouteFast is a distributed last-mile logistics platform composed of five independently deployable NestJS applications. Each bounded context owns its persistence and invariants; integration happens through HTTP or explicit RabbitMQ events.
+RouteFast is a distributed last-mile logistics platform composed of five independently deployable NestJS applications plus a browser Operations Console used to validate public contracts. Each bounded context owns its persistence and invariants; integration happens through HTTP or explicit RabbitMQ events.
 
 ```mermaid
 flowchart TD
-  Client[Client / Operations] --> GW[API Gateway :3000]
+  Console[React Ops Console :5173] --> GW[API Gateway :3000]
+  Console -->|Socket.IO /tracking| T[Tracking Service :3004]
+  Client[Other clients / Operations] --> GW
   GW --> O[Order Service :3001]
   GW --> R[Driver Service :3002]
   GW --> D[Dispatch Service :3003]
-  GW --> T[Tracking Service :3004]
+  GW --> T
 
   O --> ODB[(Order PostgreSQL)]
   R --> RDB[(Driver PostgreSQL)]
@@ -37,6 +39,12 @@ flowchart TD
 | Gateway | external HTTP facade and correlation propagation | business state |
 
 No cross-service database reads are allowed.
+
+## Operations Console boundary
+
+The React/Vite Operations Console is an external client, not a sixth bounded context. Leaflet/OpenStreetMap is used only for geographic presentation; backend Tracking remains the source of location truth. It contains presentation and demo orchestration only. It does not read databases, publish RabbitMQ events directly, reserve drivers, or calculate assignment policy. HTTP commands/queries pass through the API Gateway; live GPS subscription/update uses the Tracking Service Socket.IO namespace.
+
+The guided E2E demo intentionally depends on eventual consistency: it creates public resources and observes the read models until the asynchronous dispatch workflow converges.
 
 ## Communication
 
@@ -138,3 +146,34 @@ AWS blueprint: EKS + ALB, RDS/PostGIS, Amazon MQ RabbitMQ, ElastiCache Redis and
 ## Engineering boundary
 
 The architecture is intentionally considered feature-complete for the portfolio objective. Further changes require evidence from reliability, stress testing or product requirements. See [progressive stress methodology](./docs/performance/STRESS_TEST.md) and the [ADR index](./docs/adr/README.md).
+
+
+## Operations Console interaction model
+
+The Operations Console uses one **unified operations + engineering interaction model**. There is no Simple/Technical mode split. All public contracts and engineering evidence remain available, while every screen also provides explicit purpose, core-operation and backend-source context. This improves clarity without creating a second set of business rules or hiding important system behavior.
+
+
+## v0.7.4 presentation routing boundary
+
+The Operations Console can request a driver route, but ownership remains split deliberately:
+
+- RouteFast Dispatch/Optimization decides the stop sequence and capacity-constrained plan.
+- Tracking provides the driver's current position.
+- The browser map may request OSRM geometry only to draw that ordered plan on roads.
+- If OSRM is unavailable, direct geometry is a visual fallback; no backend decision changes.
+
+Theme selection and filters are browser presentation state and have no domain authority.
+
+
+## v0.7.5 operational route boundary
+
+The user-facing route surface is **Live Map**. Driver selection can trigger the existing backend route-plan contract automatically, but route ordering remains backend-owned. The browser may query OSRM for road geometry and duration; those values are presentation data only and never change assignment, capacity or stop-order decisions.
+
+The separate Optimization Lab is always available as an engineering comparison surface for `paired-insertion-v1` versus sequential distance. It is not a second operational map; Live Tracking remains the route execution/inspection surface.
+
+The basemap uses standard OpenStreetMap tiles without an application API key. Dark mode is a CSS treatment of that same tile layer, avoiding a second provider-specific credential path.
+
+
+## v0.7.6 unified console boundary
+
+The console no longer maintains separate experience modes. Overview, Orders, Drivers, Tracking, Dispatch, Optimization and API Activity are always reachable. A shared page-context strip declares each screen's purpose, primary operations and owning backend capability. This is presentation metadata only: it does not alter domain ownership, routing decisions or persistence boundaries.
